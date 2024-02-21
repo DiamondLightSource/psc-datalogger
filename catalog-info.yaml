@@ -1,0 +1,10 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: psc-datalogger
+  title: psc-datalogger
+  description: Logs data from one-or-more devices fro an extended period of time
+spec:
+  type: documentation
+  lifecycle: experimental
+  owner: group:default/sscc

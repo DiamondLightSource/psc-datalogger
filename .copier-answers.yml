@@ -1,0 +1,15 @@
+# Changes here will be overwritten by Copier
+_commit: 1.3.0
+_src_path: gh:DiamondLightSource/python-copier-template
+author_email: alex.wells@diamond.ac.uk
+author_name: Alex Wells
+component_owner: group:default/sscc
+description: Logs data from one-or-more devices fro an extended period of time
+distribution_name: psc-datalogger
+docker: false
+docs_type: README
+git_platform: github.com
+github_org: DiamondLightSource
+package_name: psc_datalogger
+repo_name: psc-datalogger
+type_checker: pyright
