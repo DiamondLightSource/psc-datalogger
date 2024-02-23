@@ -5,7 +5,7 @@
 
 # psc_datalogger
 
-Logs data from one-or-more devices fro an extended period of time
+Logs data from one-or-more devices for an extended period of time
 
 This is where you should write a short paragraph that describes what your module does,
 how it does it, and why people should use it.
