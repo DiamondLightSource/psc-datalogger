@@ -116,13 +116,13 @@ class LogFileWidgets(QFrame):
 
     def create_widgets(self) -> None:
         file_layout = QHBoxLayout()
-
         # This is actually a pop-up dialog, not an inline widget
         self.dialog = QFileDialog(None, "Select output logfile")
         self.dialog.setFileMode(QFileDialog.FileMode.AnyFile)
         self.dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        self.dialog.setNameFilter("CSV (*.csv)")
+        self.dialog.setDefaultSuffix(".csv")
         self.dialog.fileSelected.connect(self.file_selected)
-        # TODO: Add .csv file filters
 
         file_button = QPushButton("Select Logfile...")
         # Suppress error that `exec` doesn't technically match signature of a PYQT_SLOT
