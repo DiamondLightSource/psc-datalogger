@@ -6,8 +6,12 @@ FROM python:${PYTHON_VERSION} as developer
 # Add any system dependencies for the developer/build environment here
 RUN apt-get update && apt-get install -y --no-install-recommends \
     graphviz \
+    libglib2.0-0 \
+    libqt5gui5 libxcb-xinerama0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up a virtual environment and put it in PATH
 RUN python -m venv /venv
 ENV PATH=/venv/bin:$PATH
+
+ENV XDG_RUNTIME_DIR=/tmp/runtime-vscode

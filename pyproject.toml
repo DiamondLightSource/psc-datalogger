@@ -13,8 +13,14 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
 ]
-description = "Logs data from one-or-more devices fro an extended period of time"
-dependencies = [] # Add project dependencies here, e.g. ["click", "numpy"]
+description = "Logs data from one-or-more devices for an extended period of time"
+dependencies = [
+    "qasync",
+    "PyQt5",
+    "pyserial",
+    "pyvisa",
+    "pyvisa-py",
+] # Add project dependencies here, e.g. ["click", "numpy"]
 dynamic = ["version"]
 license.file = "LICENSE"
 readme = "README.md"
@@ -31,6 +37,8 @@ dev = [
     "ruff",
     "tox-direct",
     "types-mock",
+    "psutil",     # Useful for pyvisa's ResourceManager.list_resources() function
+    "zeroconf",   # Useful for pyvisa's ResourceManager.list_resources() function
 ]
 
 [project.scripts]

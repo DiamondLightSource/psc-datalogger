@@ -5,6 +5,19 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "GUI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "psc_datalogger"
+        },
+        {
             "name": "Debug Unit Test",
             "type": "python",
             "request": "launch",
