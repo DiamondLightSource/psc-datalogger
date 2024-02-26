@@ -125,7 +125,9 @@ class LogFileWidgets(QFrame):
         # TODO: Add .csv file filters
 
         file_button = QPushButton("Select Logfile...")
-        file_button.clicked.connect(self.dialog.exec)
+        # Suppress error that `exec` doesn't technically match signature of a PYQT_SLOT
+        # - it doesn't affect anything, the return value is discarded
+        file_button.clicked.connect(self.dialog.exec)  # type: ignore
         file_layout.addWidget(file_button)
 
         self.file_readback = QLineEdit()
@@ -139,10 +141,6 @@ class LogFileWidgets(QFrame):
         self.filename = new_path
         self.file_readback.setText(new_path)
         self.filename_callback(new_path)
-
-    def get_logfile_path(self) -> str:
-        # TODO: Just take value from the file_readback?
-        return self.filename
 
 
 class AgilentWidgets(QGroupBox):

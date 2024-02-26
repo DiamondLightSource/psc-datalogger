@@ -29,7 +29,7 @@ class ConnectionManager:
     def set_interval(self, interval: str):
         """Set the update interval for the logging thread"""
         print("New interval: ", interval)
-        self._worker.interval = interval
+        self._worker.interval = float(interval)
 
     def set_filepath(self, filepath):
         """Set the filepath for the logging thread"""
@@ -62,6 +62,8 @@ class Worker(QObject):
     # Keep track of the addresses of each of the 3 possible devices
     # Ordered dict to ensure that we always read instruments in order when iterating
     instrument_addresses = OrderedDict({1: "", 2: "", 3: ""})
+
+    connection: pyvisa.resources.SerialInstrument
 
     def __init__(self, logging_signal: Event):
         """
@@ -140,7 +142,7 @@ class Worker(QObject):
                 traceback.print_exc()
                 pass
 
-            time.sleep(float(self.interval) / 1000.0)
+            time.sleep(self.interval / 1000.0)
 
     def init_connection(self):
         """Initialize the connection to the Prologix device"""
@@ -151,7 +153,9 @@ class Worker(QObject):
 
             print(rm.list_resources())
             # TODO: Work out some way to make this dynamic...
-            self.connection = rm.open_resource("ASRL/dev/ttyUSB0::INSTR")
+            self.connection: pyvisa.resources.SerialInstrument = rm.open_resource(
+                "ASRL/dev/ttyUSB0::INSTR"
+            )  # type: ignore # The open_resource function returns a very generic type
 
     def do_logging(self):
         """Take one set of readings and write them to file"""
