@@ -3,7 +3,6 @@ from typing import Callable, Optional
 
 from PyQt5.QtWidgets import (
     QApplication,
-    QErrorMessage,
     QFileDialog,
     QFrame,
     QGroupBox,
@@ -11,6 +10,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -95,13 +95,15 @@ class DataloggerMainWindow(QMainWindow):
             self.start_stop_button.setText(self.stop_text)
             started = self.connection_manager.start_logging()
             if not started:
-                error_message = QErrorMessage(self)
-                error_message.setModal(True)
-                error_message.showMessage(
-                    "Could not start logging."
-                    "Check at least one address, update interval, and output file "
-                    "is set"
+                error_dialog = QMessageBox(self)
+                error_dialog.setIcon(QMessageBox.Icon.Critical)
+                error_dialog.setModal(True)
+                error_dialog.setWindowTitle("Failed to start logging")
+                error_dialog.setText("Unable to start logging data")
+                error_dialog.setInformativeText(
+                    "Check at least one address, update interval, and logfile is set"
                 )
+                error_dialog.exec()
                 self.start_stop_button.setChecked(False)
         else:
             # Button is unpressed, do stop actions
@@ -167,6 +169,12 @@ class AgilentWidgets(QGroupBox):
     def __init__(
         self, instrument_number: int, checked: bool, address_changed: Callable
     ) -> None:
+        """
+        Args:
+          instrument_number: The number to use to identify this instance
+          checked: True if the widgets should be enabled by default
+          address_changed: Callback to be called whenever an address changes
+        """
         super().__init__(f"Instrument {instrument_number}")
         self.instrument_number = instrument_number
 
