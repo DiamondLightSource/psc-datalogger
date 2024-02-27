@@ -2,6 +2,7 @@ from typing import Callable, Optional
 
 from PyQt5.QtWidgets import (
     QApplication,
+    QErrorMessage,
     QFileDialog,
     QFrame,
     QGroupBox,
@@ -15,6 +16,7 @@ from PyQt5.QtWidgets import (
 )
 
 from .connection import ConnectionManager
+from .statusbar import StatusBar
 
 
 def application():
@@ -36,6 +38,9 @@ class DataloggerMainWindow(QMainWindow):
         self.connection_manager = ConnectionManager()
 
         self.create_widgets()
+
+        self.connection_manager.set_status_bar(self.status_bar)
+        self.connection_manager.start()
 
     def create_widgets(self) -> None:
         """Create all the widgets for this screen"""
@@ -77,14 +82,24 @@ class DataloggerMainWindow(QMainWindow):
         self.start_stop_button.toggled.connect(self.handle_start_stop)
         layout.addWidget(self.start_stop_button)
 
+        self.status_bar = StatusBar(self)
+        self.setStatusBar(self.status_bar)
+
     def handle_start_stop(self, checked):
         """Handles starting and stopping logging"""
-        print("toggled", checked)
-
         if checked:
             # Button is pressed, do start actions
             self.start_stop_button.setText(self.stop_text)
-            self.connection_manager.start_logging()
+            started = self.connection_manager.start_logging()
+            if not started:
+                error_message = QErrorMessage(self)
+                error_message.setModal(True)
+                error_message.showMessage(
+                    "Could not start logging.\n"
+                    "Check at least one address, update interval, and output file "
+                    "is set"
+                )
+                self.start_stop_button.setChecked(False)
         else:
             # Button is unpressed, do stop actions
             self.start_stop_button.setText(self.start_text)
