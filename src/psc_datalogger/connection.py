@@ -1,3 +1,4 @@
+import logging
 import time
 import traceback
 from collections import OrderedDict
@@ -27,6 +28,7 @@ class ConnectionManager:
 
     def start(self):
         """Begin the worker thread"""
+        logging.debug("Starting worker thread")
         self.thread.start()
 
     def set_status_bar(self, status_bar: StatusBar):
@@ -109,7 +111,7 @@ class Worker(QObject):
     def set_filepath(self, filepath):
         """Create the CSV writer for the given filepath. Closes any existing
         writer/filehandle."""
-        print(f"Setting filepath to {filepath}")
+        logging.info(f"Setting filepath to {filepath}")
         with self.lock:
             if self.csv_writer:
                 self.csv_writer = None
@@ -127,7 +129,6 @@ class Worker(QObject):
 
     def set_address(self, instrument_number: int, gpib_address: str):
         """Set the address of the given instrument to the given address"""
-        print("New address: ", instrument_number, gpib_address)
 
         with self.lock:
             if gpib_address != "":
@@ -149,24 +150,27 @@ class Worker(QObject):
                 # events and immediately read it, thus keeping the buffer empty so we
                 # avoid reading stale results
 
+            logging.info(
+                f"Set instrument {instrument_number} address to {gpib_address}"
+            )
             self.instrument_addresses[instrument_number] = gpib_address
-            print("New dict:", self.instrument_addresses)
 
     def validate_parameters(self) -> bool:
         """Returns True if all required parameters are set, otherwise False"""
 
         if all(x == "" for x in self.instrument_addresses.values()):
-            # No addresses set
+            logging.warning("No GPIB addresses set for any instrument")
             return False
 
         if self.interval == 0:
-            # No interval set
+            logging.warning("No update interval set")
             return False
 
         if self.csv_file is None or self.csv_writer is None:
-            # No logfile set
+            logging.warning("No logfile selected")
             return False
 
+        logging.info("Parameters are valid")
         return True
 
     def run(self):
@@ -174,7 +178,6 @@ class Worker(QObject):
         queries the instruments for data, and logs it"""
 
         self.init_connection()
-
         self.init_complete.emit()
 
         while True:
@@ -186,52 +189,44 @@ class Worker(QObject):
                 # Ignore it so we try and continue next time
                 # TODO: proper error reporting
                 traceback.print_exc()
-                self.error(f"Exception in run: {e}")
+                logging.error(f"Exception in run: {e}")
                 pass
 
             time.sleep(self.interval / 1000.0)
 
     def init_connection(self):
         """Initialize the connection to the Prologix device"""
-        # TODO: Set up proper logging!
         with self.lock:
-            print("Starting init_connection")
+            logging.debug("Starting init_connection")
             rm = pyvisa.ResourceManager()
 
-            print(rm.list_resources())
+            logging.info(f"Resources available: {rm.list_resources()}")
             # TODO: Work out some way to make this dynamic...
             self.connection: pyvisa.resources.SerialInstrument = rm.open_resource(
                 "ASRL/dev/ttyUSB0::INSTR"
             )  # type: ignore # The open_resource function returns a very generic type
 
+            logging.info("Connection initialized")
+
     def do_logging(self):
         """Take one set of readings and write them to file"""
 
         with self.lock:
-            print("Starting logging")
-
             assert self.connection is not None
 
             results = self.query_instruments()
 
             if any(x == self.ERROR_STRING for x in results):
                 simple_timestamp = results[0].isoformat(sep=" ", timespec="seconds")
+                logging.error("Unable to read data")
                 self.error.emit(f"Unable to read data {simple_timestamp}")
             else:
                 self.query_complete.emit(results[0])
 
-            print(
-                "Writing: ",
-                {
-                    "timestamp": str(results[0]),
-                    "instrument 1": results[1],
-                    "instrument 2": results[2],
-                    "instrument 3": results[3],
-                },
+            logging.info(
+                f"Data read: {str(results[0])} {results[1]} {results[2]} {results[3]}"
             )
 
-            # In theory possible to have started logging before a file is set
-            # TODO: Disable the "Start" button until the filepath is set?
             if self.csv_writer and self.csv_file:
                 self.csv_writer.writerow(
                     {
@@ -241,8 +236,8 @@ class Worker(QObject):
                         "instrument 3": results[3],
                     }
                 )
-
                 self.csv_file.flush()
+                logging.debug("File flushed")
 
     def query_instruments(self) -> Tuple[datetime, str, str, str]:
         """Query the instruments and return the timestamp followed by three instrument
@@ -262,14 +257,19 @@ class Worker(QObject):
                     # Configure Prologix to talk to the current device
                     self.connection.write(f"++addr {i}")
 
+                    logging.debug(f"Triggering instrument {i}")
                     # Request a single measurement
                     val: str = self.connection.query("TRIG SGL")
+
+                    logging.info(f"Address {i} Value {val}")
+
                     # Value format is e.g. " 9.089320482E+00\r\n"
-                    val = val.strip(" \r\n")
+                    # Occasionally there are leading NULL bytes.
+                    val = val.strip(" \r\n").replace("\x00", "")
                 except Exception:
                     # Issue reading from this instrument. Mark an error but continue
                     # processing other instruments
-                    traceback.print_exc()
+                    logging.exception(f"Exception reading from address {i}")
                     val = self.ERROR_STRING
 
                 measurements.append(val)

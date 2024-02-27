@@ -1,3 +1,4 @@
+import logging
 from typing import Callable, Optional
 
 from PyQt5.QtWidgets import (
@@ -25,6 +26,7 @@ def application():
     window = DataloggerMainWindow()
     window.show()
 
+    logging.debug("Launching application")
     app.exec()
 
 
@@ -87,6 +89,7 @@ class DataloggerMainWindow(QMainWindow):
 
     def handle_start_stop(self, checked):
         """Handles starting and stopping logging"""
+        logging.debug(f"Start/Stop button is {checked}")
         if checked:
             # Button is pressed, do start actions
             self.start_stop_button.setText(self.stop_text)
@@ -95,7 +98,7 @@ class DataloggerMainWindow(QMainWindow):
                 error_message = QErrorMessage(self)
                 error_message.setModal(True)
                 error_message.showMessage(
-                    "Could not start logging.\n"
+                    "Could not start logging."
                     "Check at least one address, update interval, and output file "
                     "is set"
                 )
