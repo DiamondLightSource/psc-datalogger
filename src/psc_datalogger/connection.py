@@ -4,7 +4,7 @@ from collections import OrderedDict
 from csv import DictWriter
 from datetime import datetime
 from threading import Event, RLock
-from typing import Optional, TextIO
+from typing import Optional, TextIO, Tuple
 
 import pyvisa
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
@@ -190,7 +190,7 @@ class Worker(QObject):
 
                 self.csv_file.flush()
 
-    def query_instruments(self) -> tuple[str, str, str, str]:
+    def query_instruments(self) -> Tuple[str, str, str, str]:
         """Query the instruments and return the timestamp followed by three instrument
         readings."""
 
