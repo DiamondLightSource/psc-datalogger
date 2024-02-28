@@ -7,7 +7,7 @@ from .gui import application
 __all__ = ["main"]
 
 
-def main(args=None):
+def main():
     parser = ArgumentParser()
     parser.add_argument("-v", "--version", action="version", version=__version__)
     parser.add_argument(
@@ -18,7 +18,7 @@ def main(args=None):
         help="Set the logging level",
         default="WARNING",
     )
-    args = parser.parse_args(args)
+    args = parser.parse_args()
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
