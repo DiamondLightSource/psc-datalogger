@@ -1,6 +1,5 @@
 import logging
 import time
-import traceback
 from collections import OrderedDict
 from csv import DictWriter
 from dataclasses import dataclass
@@ -222,13 +221,14 @@ class Worker(QObject):
 
             try:
                 self.do_logging()
-            except Exception as e:
-                # Ignore it so we try and continue next time
-                # TODO: proper error reporting
-                traceback.print_exc()
-                logging.error(f"Exception in run: {e}")
+            except Exception:
+                # Ignore it and continue working
+                logging.exception("Unexpected exception while logging data")
                 pass
 
+            # Sleeping like this will cause minor drift over time, equal to how long
+            # reading from all instruments takes. This becomes a major problem if
+            # timeouts occur as they invoke a 3-second delay per timeout.
             time.sleep(self.interval)
 
     def init_connection(self):
