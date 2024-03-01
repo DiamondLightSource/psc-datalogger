@@ -1,5 +1,6 @@
 import logging
-from argparse import ArgumentParser
+import sys
+from argparse import ArgumentParser, Namespace
 
 from . import __version__
 from .gui import application
@@ -7,7 +8,7 @@ from .gui import application
 __all__ = ["main"]
 
 
-def main():
+def parse_args(args) -> Namespace:
     parser = ArgumentParser()
     parser.add_argument("-v", "--version", action="version", version=__version__)
     parser.add_argument(
@@ -18,10 +19,19 @@ def main():
         help="Set the logging level",
         default="WARNING",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(args)
+
+    # Convert the textual log level into the logging module's equivalent constant
+    args.log_level = getattr(logging, args.log_level)
+
+    return args
+
+
+def main():
+    args = parse_args(sys.argv[1:])
 
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
+        level=args.log_level,
         format="%(asctime)s:%(levelname)s:%(name)s:%(message)s",
         datefmt="%m-%d %H:%M:%S",
     )
