@@ -144,9 +144,23 @@ class Worker(QObject):
 
     def set_instruments(
         self, instrument_number: int, gpib_address: str, measure_temp: bool
-    ):
+    ) -> None:
         """Configure the given instrument number with the provided parameters"""
 
+        logging.info(
+            f"Configuring instrument {instrument_number}; Address {gpib_address},"
+            f"measure temp {measure_temp}"
+        )
+        self.instrument_addresses[instrument_number] = InstrumentConfig(
+            gpib_address, measure_temp
+        )
+
+        self._init_instrument(self.instrument_addresses[instrument_number])
+
+    def _init_instrument(self, instrument: InstrumentConfig) -> None:
+        """Initialize the given instrument"""
+        logging.debug(f"Initializing instrument at address {instrument.address}")
+        gpib_address = instrument.address
         with self.lock:
             if gpib_address != "":
                 self.connection.write(f"++addr {gpib_address}")
@@ -156,24 +170,27 @@ class Worker(QObject):
 
                 time.sleep(0.1)  # Give Prologix a moment to process previous commands
 
-                self.connection.write("PRESET")  # Set a variety of defaults
+                self.connection.write("PRESET NORM")  # Set a variety of defaults
                 self.connection.write("BEEP 0")  # Disable annoying beeps
                 # Clear all memory buffers and disable all triggering
                 self.connection.write("CLEAR")
 
                 self.connection.write("TRIG HOLD")  # Disable triggering
-                # This means the instrument will stop collecting measurements, thus not
-                # filling its internal memory buffer. Later we will send single trigger
-                # events and immediately read it, thus keeping the buffer empty so we
-                # avoid reading stale results
+                # This means the instrument will stop collecting measurements, thus
+                # not filling its internal memory buffer. Later we will send single
+                # trigger events and immediately read it, thus keeping the buffer
+                # empty so we avoid reading stale results
 
-            logging.info(
-                f"Configuring instrument {instrument_number}; Address {gpib_address},"
-                f"measure temp {measure_temp}"
-            )
-            self.instrument_addresses[instrument_number] = InstrumentConfig(
-                gpib_address, measure_temp
-            )
+                # Finally, read all data remaining in the buffer; it is possible for
+                # samples to be taken in the time between us sending the various above
+                # commands
+                while self.connection.bytes_in_buffer:
+                    try:
+                        self.connection.read()
+                    except pyvisa.VisaIOError:
+                        logging.debug(f"Instrument {gpib_address} data buffer emptied")
+
+        logging.debug(f"Instrument initialized at address {instrument.address}")
 
     def validate_parameters(self) -> bool:
         """Returns True if all required parameters are set, otherwise False"""
