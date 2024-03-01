@@ -92,9 +92,8 @@ class Worker(QObject):
     # An error has occurred. Parameter is the error message.
     error = pyqtSignal(str)
 
-    # TODO: Add some validation to the incoming parameters, possibly in setters
     # The update interval that readings should be taken at
-    interval: float = 0  # ms
+    interval: float = 0  # seconds
 
     csv_file: Optional[TextIO] = None
     csv_writer: Optional[DictWriter] = None
@@ -213,7 +212,7 @@ class Worker(QObject):
                 logging.error(f"Exception in run: {e}")
                 pass
 
-            time.sleep(self.interval / 1000.0)
+            time.sleep(self.interval)
 
     def init_connection(self):
         """Initialize the connection to the Prologix device"""

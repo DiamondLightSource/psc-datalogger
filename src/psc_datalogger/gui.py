@@ -65,7 +65,7 @@ class DataloggerMainWindow(QMainWindow):
 
         # Widgets for the update interval
         interval_frame = QFrame()
-        interval_label = QLabel("Update interval (ms):")
+        interval_label = QLabel("Update interval (s):")
         interval_layout = QHBoxLayout()
         interval_frame.setLayout(interval_layout)
         interval_layout.addWidget(interval_label)
