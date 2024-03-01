@@ -41,7 +41,8 @@ coefficients = Coeffs(
 )
 
 
-def volts_to_celcius(millivolts):
+def volts_to_celcius(millivolts: str) -> float:
+    millivolts = float(millivolts)
     assert (
         -0.778 < millivolts < 2.436
     ), f"millivolt reading {millivolts} outside of modelled range"

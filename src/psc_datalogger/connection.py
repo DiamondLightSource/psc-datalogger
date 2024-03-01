@@ -3,6 +3,7 @@ import time
 import traceback
 from collections import OrderedDict
 from csv import DictWriter
+from dataclasses import dataclass
 from datetime import datetime
 from threading import Event, RLock
 from typing import Optional, TextIO, Tuple
@@ -11,6 +12,7 @@ import pyvisa
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
 from .statusbar import StatusBar
+from .thermocouple.thermocouple import volts_to_celcius
 
 
 class ConnectionManager:
@@ -46,9 +48,11 @@ class ConnectionManager:
         """Set the filepath for the logging thread"""
         self._worker.set_filepath(filepath)
 
-    def set_address(self, instrument_number: int, gpib_address: str):
-        """Set the address for the given number instrument"""
-        self._worker.set_address(instrument_number, gpib_address)
+    def set_instrument(
+        self, instrument_number: int, gpib_address: str, measure_temp: bool
+    ):
+        """Configure the given instrument number with the provided parameters"""
+        self._worker.set_instruments(instrument_number, gpib_address, measure_temp)
 
     def start_logging(self) -> bool:
         """Start the logging process in the background thread"""
@@ -63,6 +67,16 @@ class ConnectionManager:
         """Stop the logging process in the background thread"""
         self.logging_signal.clear()
         self.status_bar.logging_stopped()
+
+
+@dataclass
+class InstrumentConfig:
+    """Contains the configuration for a single instrument"""
+
+    # GPIB address of instrument
+    address: str = ""
+    # Indicate whether the voltage read should be converted into a temperature
+    measure_temp: bool = False
 
 
 class Worker(QObject):
@@ -87,7 +101,9 @@ class Worker(QObject):
 
     # Keep track of the addresses of each of the 3 possible devices
     # Ordered dict to ensure that we always read instruments in order when iterating
-    instrument_addresses = OrderedDict({1: "", 2: "", 3: ""})
+    instrument_addresses = OrderedDict(
+        {1: InstrumentConfig(), 2: InstrumentConfig(), 3: InstrumentConfig()}
+    )
 
     connection: pyvisa.resources.SerialInstrument
 
@@ -127,8 +143,10 @@ class Worker(QObject):
             self.csv_writer.writeheader()
             self.csv_file.flush()
 
-    def set_address(self, instrument_number: int, gpib_address: str):
-        """Set the address of the given instrument to the given address"""
+    def set_instruments(
+        self, instrument_number: int, gpib_address: str, measure_temp: bool
+    ):
+        """Configure the given instrument number with the provided parameters"""
 
         with self.lock:
             if gpib_address != "":
@@ -151,14 +169,17 @@ class Worker(QObject):
                 # avoid reading stale results
 
             logging.info(
-                f"Set instrument {instrument_number} address to {gpib_address}"
+                f"Configuring instrument {instrument_number}; Address {gpib_address},"
+                f"measure temp {measure_temp}"
             )
-            self.instrument_addresses[instrument_number] = gpib_address
+            self.instrument_addresses[instrument_number] = InstrumentConfig(
+                gpib_address, measure_temp
+            )
 
     def validate_parameters(self) -> bool:
         """Returns True if all required parameters are set, otherwise False"""
 
-        if all(x == "" for x in self.instrument_addresses.values()):
+        if all(x.address == "" for x in self.instrument_addresses.values()):
             logging.warning("No GPIB addresses set for any instrument")
             return False
 
@@ -248,20 +269,20 @@ class Worker(QObject):
 
             measurements = []
             for i in self.instrument_addresses.values():
-                if i == "":
+                if i.address == "":
                     # No address, add empty entry
                     measurements.append("")
                     continue
 
                 try:
                     # Configure Prologix to talk to the current device
-                    self.connection.write(f"++addr {i}")
+                    self.connection.write(f"++addr {i.address}")
 
-                    logging.debug(f"Triggering instrument {i}")
+                    logging.debug(f"Triggering instrument {i.address}")
                     # Request a single measurement
                     val: str = self.connection.query("TRIG SGL")
 
-                    logging.info(f"Address {i} Value {val}")
+                    logging.debug(f"Address {i.address} Value {val}")
 
                     # Value format is e.g. " 9.089320482E+00\r\n"
                     # Occasionally there are leading NULL bytes.
@@ -269,8 +290,20 @@ class Worker(QObject):
                 except Exception:
                     # Issue reading from this instrument. Mark an error but continue
                     # processing other instruments
-                    logging.exception(f"Exception reading from address {i}")
+                    logging.exception(f"Exception reading from address {i.address}")
                     val = self.ERROR_STRING
+                else:
+                    try:
+                        if i.measure_temp:
+                            val = volts_to_celcius(val)
+                    except AssertionError:
+                        # Issue converting value to temperature. Mark an error but
+                        # continue processing other instruments
+                        logging.exception(
+                            f"Exception converting value {val} to "
+                            f"temperature from address {i.address}"
+                        )
+                        val = self.ERROR_STRING
 
                 measurements.append(val)
 

@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -57,7 +58,7 @@ class DataloggerMainWindow(QMainWindow):
         checked = True
         for i in range(3):
             # Use 1-index for GUI labels
-            instrument = AgilentWidgets(i + 1, checked, self.handle_address_change)
+            instrument = AgilentWidgets(i + 1, checked, self.handle_instrument_changed)
             self.instruments.append(instrument)
             layout.addWidget(instrument)
             checked = False
@@ -110,16 +111,20 @@ class DataloggerMainWindow(QMainWindow):
             self.start_stop_button.setText(self.start_text)
             self.connection_manager.stop_logging()
 
-    def handle_address_change(self):
+    def handle_instrument_changed(self):
         """Handle when any of the Agilent GPIB addresses change"""
         for i in self.instruments:
             if i.isChecked():
                 address = i.get_address()
+                measure_temp = i.get_temperature_checked()
             else:
                 # Blank the address if the widget is disabled
                 address = ""
+                measure_temp = False
 
-            self.connection_manager.set_address(i.instrument_number, address)
+            self.connection_manager.set_instrument(
+                i.instrument_number, address, measure_temp
+            )
 
 
 class LogFileWidgets(QFrame):
@@ -167,32 +172,45 @@ class AgilentWidgets(QGroupBox):
     """Contains widgets describing a single Agilent 3458A instrument"""
 
     def __init__(
-        self, instrument_number: int, checked: bool, address_changed: Callable
+        self, instrument_number: int, checked: bool, instrument_changed: Callable
     ) -> None:
         """
         Args:
           instrument_number: The number to use to identify this instance
           checked: True if the widgets should be enabled by default
-          address_changed: Callback to be called whenever an address changes
+          instrument_changed: Callback to be called whenever an address changes
         """
         super().__init__(f"Instrument {instrument_number}")
         self.instrument_number = instrument_number
 
         self.setCheckable(True)
         self.setChecked(checked)
-        self.toggled.connect(address_changed)
+        self.toggled.connect(instrument_changed)
 
-        self.create_widgets(address_changed)
+        self.create_widgets(instrument_changed)
 
-    def create_widgets(self, address_changed: Callable):
+    def create_widgets(self, instrument_changed: Callable) -> None:
         address_label = QLabel("GPIB Address")
         self.address_input_box = QLineEdit()
-        self.address_input_box.editingFinished.connect(address_changed)
+        self.address_input_box.editingFinished.connect(instrument_changed)
+        self.voltage_radiobutton = QRadioButton("Voltage")
+        self.voltage_radiobutton.setChecked(True)
+        self.voltage_radiobutton.toggled.connect(instrument_changed)
+        self.temperature_radiobutton = QRadioButton("Temperature")
+        # Don't need to .connect() the second button as changing the first one
+        # triggers a callback that will check both buttons
 
         layout = QHBoxLayout(self)
         layout.addWidget(address_label)
         layout.addWidget(self.address_input_box)
+        layout.addWidget(self.voltage_radiobutton)
+        layout.addWidget(self.temperature_radiobutton)
         self.setLayout(layout)
 
-    def get_address(self):
+    def get_address(self) -> str:
         return self.address_input_box.text()
+
+    def get_temperature_checked(self) -> bool:
+        """Returns True if this instrument is configured to read temperature instead of
+        voltage"""
+        return self.temperature_radiobutton.isChecked()
