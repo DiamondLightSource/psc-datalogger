@@ -84,6 +84,7 @@ class Worker(QObject):
 
     # Signal that initialization has completed
     init_complete = pyqtSignal()
+
     # Signal that we have queried all the instruments.
     # Parameter is the timestamp this occurred at.
     query_complete = pyqtSignal(datetime)
@@ -121,6 +122,8 @@ class Worker(QObject):
         # This lock protects both the file and the serial connection resources
         # Recursive to allow more defensive programming
         self.lock = RLock()
+
+        self.running = True
 
     def set_filepath(self, filepath):
         """Create the CSV writer for the given filepath. Closes any existing
@@ -216,7 +219,7 @@ class Worker(QObject):
         self.init_connection()
         self.init_complete.emit()
 
-        while True:
+        while self.running:
             self.logging_signal.wait()
 
             try:
@@ -234,11 +237,12 @@ class Worker(QObject):
     def init_connection(self):
         """Initialize the connection to the Prologix device"""
         with self.lock:
-            logging.debug("Starting init_connection")
             rm = pyvisa.ResourceManager()
 
             logging.info(f"Resources available: {rm.list_resources()}")
             # TODO: Work out some way to make this dynamic...
+            # Probably capture the list of avaialble resources, then do a prologix
+            # command e.g. ++help, or ++mode
             self.connection: pyvisa.resources.SerialInstrument = rm.open_resource(
                 "ASRL/dev/ttyUSB0::INSTR"
             )  # type: ignore # The open_resource function returns a very generic type
@@ -301,7 +305,7 @@ class Worker(QObject):
                     logging.debug(f"Address {i.address} Value {val}")
 
                     # Value format is e.g. " 9.089320482E+00\r\n"
-                    # Occasionally there are leading NULL bytes.
+                    # Occasionally there are also leading NULL bytes.
                     val = val.strip(" \r\n").replace("\x00", "")
                 except Exception:
                     # Issue reading from this instrument. Mark an error but continue
@@ -324,3 +328,9 @@ class Worker(QObject):
                 measurements.append(val)
 
             return measurement_time, *measurements
+
+    def _exit(self) -> None:
+        """Cleanly stop the run() method to terminate all processing.
+        This method is only used in testing!"""
+        self.running = False
+        self.logging_signal.set()
