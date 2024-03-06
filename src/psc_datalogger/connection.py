@@ -51,7 +51,7 @@ class ConnectionManager:
         self, instrument_number: int, gpib_address: str, measure_temp: bool
     ):
         """Configure the given instrument number with the provided parameters"""
-        self._worker.set_instruments(instrument_number, gpib_address, measure_temp)
+        self._worker.set_instrument(instrument_number, gpib_address, measure_temp)
 
     def start_logging(self) -> bool:
         """Start the logging process in the background thread"""
@@ -141,7 +141,7 @@ class Worker(QObject):
             self.csv_writer.writeheader()
             self.csv_file.flush()
 
-    def set_instruments(
+    def set_instrument(
         self, instrument_number: int, gpib_address: str, measure_temp: bool
     ) -> None:
         """Configure the given instrument number with the provided parameters"""
