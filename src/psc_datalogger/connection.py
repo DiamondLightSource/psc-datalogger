@@ -5,7 +5,7 @@ from csv import DictWriter
 from dataclasses import dataclass
 from datetime import datetime
 from threading import Event, RLock
-from typing import Optional, TextIO, Tuple
+from typing import List, Optional, TextIO, Tuple
 
 import pyvisa
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
@@ -54,7 +54,8 @@ class ConnectionManager:
         self._worker.set_instrument(instrument_number, gpib_address, measure_temp)
 
     def start_logging(self) -> bool:
-        """Start the logging process in the background thread"""
+        """Start the logging process in the background thread.
+        Returns True if logging successfully started, else False"""
         if self._worker.validate_parameters():
             self.logging_signal.set()
             self.status_bar.logging_started()
@@ -62,7 +63,7 @@ class ConnectionManager:
         else:
             return False
 
-    def stop_logging(self):
+    def stop_logging(self) -> None:
         """Stop the logging process in the background thread"""
         self.logging_signal.clear()
         self.status_bar.logging_stopped()
@@ -73,9 +74,47 @@ class InstrumentConfig:
     """Contains the configuration for a single instrument"""
 
     # GPIB address of instrument
-    address: str = ""
+    address: int = -1
     # Indicate whether the voltage read should be converted into a temperature
     measure_temp: bool = False
+
+
+class DataWriter(DictWriter):
+    """Class that handles writing data to a file"""
+
+    file: TextIO
+
+    fieldnames = ["timestamp", "instrument 1", "instrument 2", "instrument 3"]
+
+    def __init__(self, filepath: str):
+        self.file = open(filepath, "w")
+
+        super().__init__(self.file, fieldnames=self.fieldnames, dialect="excel")
+
+        self.writeheader()
+        self.file.flush()
+
+    def close(self) -> None:
+        self.file.close()
+
+    def write(self, timestamp: datetime, ins_1: str, ins_2: str, ins_3: str):
+        """Write the given data to the file"""
+        len_written = self.writerow(
+            {
+                self.fieldnames[0]: str(timestamp),
+                self.fieldnames[1]: ins_1,
+                self.fieldnames[2]: ins_2,
+                self.fieldnames[3]: ins_3,
+            }
+        )
+        logging.debug(f"DictWriter wrote {len_written} bytes")
+
+        self.file.flush()
+        logging.debug("File flushed")
+
+
+class PrologixNotFoundException(Exception):
+    """Exception thrown when the Prologix controller is not found"""
 
 
 class Worker(QObject):
@@ -95,8 +134,7 @@ class Worker(QObject):
     # The update interval that readings should be taken at
     interval: float = 0  # seconds
 
-    csv_file: Optional[TextIO] = None
-    csv_writer: Optional[DictWriter] = None
+    writer: Optional[DataWriter] = None
 
     # Keep track of the addresses of each of the 3 possible devices
     # Ordered dict to ensure that we always read instruments in order when iterating
@@ -125,36 +163,33 @@ class Worker(QObject):
 
         self.running = True
 
-    def set_filepath(self, filepath):
-        """Create the CSV writer for the given filepath. Closes any existing
+    def set_filepath(self, filepath: str):
+        """Create the writer for the given filepath. Closes any existing
         writer/filehandle."""
         logging.info(f"Setting filepath to {filepath}")
         with self.lock:
-            if self.csv_writer:
-                self.csv_writer = None
-            if self.csv_file:
-                self.csv_file.close()
+            if self.writer:
+                self.writer.close()
 
-            fieldnames = ["timestamp", "instrument 1", "instrument 2", "instrument 3"]
-            self.csv_file = open(filepath, "w")
-
-            self.csv_writer = DictWriter(
-                self.csv_file, fieldnames=fieldnames, dialect="excel"
-            )
-            self.csv_writer.writeheader()
-            self.csv_file.flush()
+            self.writer = DataWriter(filepath)
 
     def set_instrument(
         self, instrument_number: int, gpib_address: str, measure_temp: bool
     ) -> None:
         """Configure the given instrument number with the provided parameters"""
+        assert (
+            1 <= instrument_number <= 3
+        ), f"Invalid instrument number {instrument_number}"
+        assert gpib_address.isdigit()
+
+        address = int(gpib_address)
 
         logging.info(
             f"Configuring instrument {instrument_number}; Address {gpib_address},"
             f"measure temp {measure_temp}"
         )
         self.instrument_addresses[instrument_number] = InstrumentConfig(
-            gpib_address, measure_temp
+            address, measure_temp
         )
 
         self._init_instrument(self.instrument_addresses[instrument_number])
@@ -163,49 +198,54 @@ class Worker(QObject):
         """Initialize the given instrument"""
         logging.debug(f"Initializing instrument at address {instrument.address}")
         gpib_address = instrument.address
+
+        if gpib_address <= 0:
+            raise ValueError(
+                f"_init_instrument called with invalid address '{gpib_address}'"
+            )
+
         with self.lock:
-            if gpib_address != "":
-                self.connection.write(f"++addr {gpib_address}")
-                # Instruct Prologix to enable read-after-write,
-                # which allows the controller to write data back to us!
-                self.connection.write("++auto 1")
+            self.connection.write(f"++addr {gpib_address}")
+            # Instruct Prologix to enable read-after-write,
+            # which allows the controller to write data back to us!
+            self.connection.write("++auto 1")
 
-                time.sleep(0.1)  # Give Prologix a moment to process previous commands
+            time.sleep(0.1)  # Give Prologix a moment to process previous commands
 
-                self.connection.write("PRESET NORM")  # Set a variety of defaults
-                self.connection.write("BEEP 0")  # Disable annoying beeps
-                # Clear all memory buffers and disable all triggering
-                self.connection.write("CLEAR")
+            self.connection.write("PRESET NORM")  # Set a variety of defaults
+            self.connection.write("BEEP 0")  # Disable annoying beeps
+            # Clear all memory buffers and disable all triggering
+            self.connection.write("CLEAR")
 
-                self.connection.write("TRIG HOLD")  # Disable triggering
-                # This means the instrument will stop collecting measurements, thus
-                # not filling its internal memory buffer. Later we will send single
-                # trigger events and immediately read it, thus keeping the buffer
-                # empty so we avoid reading stale results
+            self.connection.write("TRIG HOLD")  # Disable triggering
+            # This means the instrument will stop collecting measurements, thus
+            # not filling its internal memory buffer. Later we will send single
+            # trigger events and immediately read it, thus keeping the buffer
+            # empty so we avoid reading stale results
 
-                # Finally, read all data remaining in the buffer; it is possible for
-                # samples to be taken in the time between us sending the various above
-                # commands
-                while self.connection.bytes_in_buffer:
-                    try:
-                        self.connection.read()
-                    except pyvisa.VisaIOError:
-                        logging.debug(f"Instrument {gpib_address} data buffer emptied")
+            # Finally, read all data remaining in the buffer; it is possible for
+            # samples to be taken in the time between us sending the various above
+            # commands
+            while self.connection.bytes_in_buffer:
+                try:
+                    self.connection.read()
+                except pyvisa.VisaIOError:
+                    logging.debug(f"Instrument {gpib_address} data buffer emptied")
 
         logging.debug(f"Instrument initialized at address {instrument.address}")
 
     def validate_parameters(self) -> bool:
         """Returns True if all required parameters are set, otherwise False"""
 
-        if all(x.address == "" for x in self.instrument_addresses.values()):
+        if all(x.address <= 0 for x in self.instrument_addresses.values()):
             logging.warning("No GPIB addresses set for any instrument")
             return False
 
-        if self.interval == 0:
+        if self.interval <= 0:
             logging.warning("No update interval set")
             return False
 
-        if self.csv_file is None or self.csv_writer is None:
+        if self.writer is None:
             logging.warning("No logfile selected")
             return False
 
@@ -239,13 +279,31 @@ class Worker(QObject):
         with self.lock:
             rm = pyvisa.ResourceManager()
 
-            logging.info(f"Resources available: {rm.list_resources()}")
-            # TODO: Work out some way to make this dynamic...
-            # Probably capture the list of avaialble resources, then do a prologix
-            # command e.g. ++help, or ++mode
-            self.connection: pyvisa.resources.SerialInstrument = rm.open_resource(
-                "ASRL/dev/ttyUSB0::INSTR"
-            )  # type: ignore # The open_resource function returns a very generic type
+            resources = rm.list_resources()
+
+            logging.info(f"Resources available: {resources}")
+
+            # Find the connection that is the Prologix controller
+            # Done by looking for a response to "++help" request
+            for resource in resources:
+                try:
+                    conn = rm.open_resource(resource)
+                    help_str = conn.query("++help")  # type: ignore
+                    if len(help_str) > 0:
+                        # Found it!
+                        logging.info(f"Found Prologix controller at {resource}")
+                        break
+                except pyvisa.VisaIOError:
+                    # Timeout; probably not the right device!
+                    logging.debug(f"No response to ++help for resource {resource}")
+                    continue
+            else:
+                rm.close()
+                logging.error("No Prologix controller found")
+                raise PrologixNotFoundException("No Prologix controller found")
+
+            # The open_resource function returns a very generic type
+            self.connection: pyvisa.resources.SerialInstrument = conn  # type: ignore
 
             logging.info("Connection initialized")
 
@@ -254,6 +312,7 @@ class Worker(QObject):
 
         with self.lock:
             assert self.connection is not None
+            assert self.writer is not None
 
             results = self.query_instruments()
 
@@ -268,17 +327,12 @@ class Worker(QObject):
                 f"Data read: {str(results[0])} {results[1]} {results[2]} {results[3]}"
             )
 
-            if self.csv_writer and self.csv_file:
-                self.csv_writer.writerow(
-                    {
-                        "timestamp": str(results[0]),
-                        "instrument 1": results[1],
-                        "instrument 2": results[2],
-                        "instrument 3": results[3],
-                    }
-                )
-                self.csv_file.flush()
-                logging.debug("File flushed")
+            self.writer.write(
+                timestamp=results[0],
+                ins_1=results[1],
+                ins_2=results[2],
+                ins_3=results[3],
+            )
 
     def query_instruments(self) -> Tuple[datetime, str, str, str]:
         """Query the instruments and return the timestamp followed by three instrument
@@ -287,9 +341,9 @@ class Worker(QObject):
         with self.lock:
             measurement_time = datetime.now()
 
-            measurements = []
+            measurements: List[str] = []
             for i in self.instrument_addresses.values():
-                if i.address == "":
+                if i.address <= 0:
                     # No address, add empty entry
                     measurements.append("")
                     continue
@@ -315,7 +369,7 @@ class Worker(QObject):
                 else:
                     try:
                         if i.measure_temp:
-                            val = volts_to_celcius(val)
+                            val = str(volts_to_celcius(val))
                     except AssertionError:
                         # Issue converting value to temperature. Mark an error but
                         # continue processing other instruments
@@ -327,10 +381,16 @@ class Worker(QObject):
 
                 measurements.append(val)
 
-            return measurement_time, *measurements
+            assert len(measurements) == 3
+            # Can't specify in type system that the list is 3 long, so ignore the error
+            return measurement_time, *measurements  # type: ignore
 
     def _exit(self) -> None:
         """Cleanly stop the run() method to terminate all processing.
         This method is only used in testing!"""
+        if self.writer:
+            self.writer.close()
+        # Send relevant flags to allow run() to terminate
+        # Note it will do 1 more iteration of the loop, inlcuding the sleep
         self.running = False
         self.logging_signal.set()

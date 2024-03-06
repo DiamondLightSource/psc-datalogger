@@ -122,9 +122,14 @@ class DataloggerMainWindow(QMainWindow):
                 address = ""
                 measure_temp = False
 
-            self.connection_manager.set_instrument(
-                i.instrument_number, address, measure_temp
-            )
+            try:
+                self.connection_manager.set_instrument(
+                    i.instrument_number, address, measure_temp
+                )
+            except ValueError:
+                # We expect ValueError for uninitialized/previously initialized but now
+                # disabled instruments
+                pass
 
 
 class LogFileWidgets(QFrame):
