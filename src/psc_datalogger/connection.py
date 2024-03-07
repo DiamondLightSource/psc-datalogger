@@ -261,8 +261,16 @@ class Worker(QObject):
         """Main work function of this class. Initializes a connection then continually
         queries the instruments for data, and logs it"""
 
-        self.init_connection()
-        self.init_complete.emit()
+        while True:
+            try:
+                self.init_connection()
+                self.init_complete.emit()
+                break
+            except PrologixNotFoundException:
+                logging.exception(
+                    "Prologix controller not found. Trying again in 5 seconds"
+                )
+                time.sleep(5)
 
         while self.running:
             self.logging_signal.wait()
