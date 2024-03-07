@@ -5,29 +5,15 @@
 
 # psc_datalogger
 
-Logs data from one-or-more devices for an extended period of time
+Provide a GUI interface to allow logging voltages from one to three Agilent 3458A Multimeters.
+Logging is done at a configurable interval. It can be also be configured to convert voltage readings into
+a temperature, if a Type K Thermocouple is in use.
+The data is output in a CSV format.
 
-This is where you should write a short paragraph that describes what your module does,
-how it does it, and why people should use it.
+![GUI](images/gui.png)
 
 Source          | <https://github.com/DiamondLightSource/psc-datalogger>
 :---:           | :---:
 PyPI            | `pip install psc-datalogger`
 
 Releases        | <https://github.com/DiamondLightSource/psc-datalogger/releases>
-
-This is where you should put some images or code snippets that illustrate
-some relevant examples. If it is a library then you might put some
-introductory code here:
-
-```python
-from psc_datalogger import __version__
-
-print(f"Hello psc_datalogger {__version__}")
-```
-
-Or if it is a commandline tool then you might put some example commands here:
-
-```
-python -m psc_datalogger --version
-```
