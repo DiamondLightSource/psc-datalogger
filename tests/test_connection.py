@@ -9,6 +9,9 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 import pyvisa
 
+# pyright thinks this constant is not exported
+from pyvisa.errors import VI_ERROR_TMO  # type: ignore
+
 from psc_datalogger.connection import (
     ConnectionManager,
     DataWriter,
@@ -311,9 +314,7 @@ class TestWorker:
         mock_resource_manager = MagicMock()
         mock_resource_manager.list_resources = MagicMock(return_value=("CONN1",))
         mock_conn = MagicMock()
-        mock_conn.query = MagicMock(
-            side_effect=pyvisa.VisaIOError(pyvisa.errors.VI_ERROR_TMO)  # type: ignore
-        )
+        mock_conn.query = MagicMock(side_effect=pyvisa.VisaIOError(VI_ERROR_TMO))
         mock_resource_manager.open_resource = MagicMock(return_value=mock_conn)
 
         mock_resource_manager_init.return_value = mock_resource_manager
@@ -434,9 +435,7 @@ class TestWorker:
         address = 22
         worker.instrument_addresses[1] = InstrumentConfig(address)
         mocked_write = MagicMock()
-        mocked_query = MagicMock(
-            side_effect=pyvisa.VisaIOError(pyvisa.errors.VI_ERROR_TMO)
-        )  # type: ignore
+        mocked_query = MagicMock(side_effect=pyvisa.VisaIOError(VI_ERROR_TMO))
         worker.connection = MagicMock()
         worker.connection.write = mocked_write
         worker.connection.query = mocked_query
