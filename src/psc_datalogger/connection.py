@@ -84,12 +84,17 @@ class DataWriter(DictWriter):
 
     file: TextIO
 
-    fieldnames = ["timestamp", "instrument 1", "instrument 2", "instrument 3"]
+    csv_fieldnames = [
+        "timestamp",
+        "instrument 1",
+        "instrument 2",
+        "instrument 3",
+    ]
 
     def __init__(self, filepath: str):
         self.file = open(filepath, "w")
 
-        super().__init__(self.file, fieldnames=self.fieldnames, dialect="excel")
+        super().__init__(self.file, fieldnames=self.csv_fieldnames, dialect="excel")
 
         self.writeheader()
         self.file.flush()
@@ -101,10 +106,10 @@ class DataWriter(DictWriter):
         """Write the given data to the file"""
         len_written = self.writerow(
             {
-                self.fieldnames[0]: str(timestamp),
-                self.fieldnames[1]: ins_1,
-                self.fieldnames[2]: ins_2,
-                self.fieldnames[3]: ins_3,
+                self.csv_fieldnames[0]: str(timestamp),
+                self.csv_fieldnames[1]: ins_1,
+                self.csv_fieldnames[2]: ins_2,
+                self.csv_fieldnames[3]: ins_3,
             }
         )
         logging.debug(f"DictWriter wrote {len_written} bytes")
