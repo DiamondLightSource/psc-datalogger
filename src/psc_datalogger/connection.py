@@ -41,7 +41,8 @@ class ConnectionManager:
 
     def set_interval(self, interval: str):
         """Set the update interval for the logging thread"""
-        self._worker.interval = float(interval)
+        if interval != "":  # Empty string passed if the textbox is cleared
+            self._worker.interval = float(interval)
 
     def set_filepath(self, filepath):
         """Set the filepath for the logging thread"""
@@ -185,7 +186,6 @@ class Worker(QObject):
         assert (
             1 <= instrument_number <= 3
         ), f"Invalid instrument number {instrument_number}"
-        assert gpib_address.isdigit()
 
         address = int(gpib_address)
 
@@ -290,7 +290,8 @@ class Worker(QObject):
 
             # Find the connection that is the Prologix controller
             # Done by looking for a response to "++help" request
-            for resource in resources:
+            # Reversed as it's more common for it to be the last resource in the list
+            for resource in reversed(resources):
                 try:
                     conn = rm.open_resource(resource)
                     help_str = conn.query("++help")  # type: ignore
