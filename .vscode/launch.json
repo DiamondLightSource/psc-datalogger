@@ -5,28 +5,21 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Current File",
+            "name": "Command Line Test Program",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "${workspaceFolder}/src/psc_datalogger/testprog.py",
             "console": "integratedTerminal"
         },
         {
             "name": "GUI",
             "type": "debugpy",
             "request": "launch",
-            "module": "psc_datalogger"
+            "module": "psc_datalogger",
+            "args": [
+                "--log",
+                "DEBUG"
+            ]
         },
-        {
-            "name": "Debug Unit Test",
-            "type": "python",
-            "request": "launch",
-            "justMyCode": false,
-            "program": "${file}",
-            "purpose": [
-                "debug-test"
-            ],
-            "console": "integratedTerminal",
-        }
     ]
 }
