@@ -1,6 +1,7 @@
 import logging
 from typing import Callable, Optional
 
+from PyQt5.QtGui import QIntValidator
 from PyQt5.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -69,7 +70,9 @@ class DataloggerMainWindow(QMainWindow):
         interval_layout = QHBoxLayout()
         interval_frame.setLayout(interval_layout)
         interval_layout.addWidget(interval_label)
-        interval_input = QLineEdit()  # TODO: Add numeric-only filters
+        interval_input = QLineEdit()
+        int_only = QIntValidator()
+        interval_input.setValidator(int_only)
         interval_input.textEdited.connect(self.connection_manager.set_interval)
         interval_layout.addWidget(interval_input)
         layout.addWidget(interval_frame)
@@ -197,6 +200,9 @@ class AgilentWidgets(QGroupBox):
     def create_widgets(self, instrument_changed: Callable) -> None:
         address_label = QLabel("GPIB Address")
         self.address_input_box = QLineEdit()
+        int_only = QIntValidator()
+        int_only.setRange(0, 30)
+        self.address_input_box.setValidator(int_only)
         self.address_input_box.editingFinished.connect(instrument_changed)
         self.voltage_radiobutton = QRadioButton("Voltage")
         self.voltage_radiobutton.setChecked(True)
