@@ -16,6 +16,7 @@ from .thermocouple.thermocouple import volts_to_celcius
 
 class ConnectionManager:
     """Manage the connection to the instruments
+
     NOTE: There is expected to only be 1 Prologix device connected, which
     will talk to up to 3 Agilent3458A Multimeters"""
 
@@ -125,6 +126,7 @@ class PrologixNotFoundException(Exception):
 
 class Worker(QObject):
     """Class that does the serial connection to the instruments
+
     NOTE: This expects to be run in a separate QThread from the main GUI"""
 
     # Signal that initialization has completed
