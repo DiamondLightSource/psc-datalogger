@@ -77,7 +77,7 @@ class InstrumentConfig:
     # GPIB address of instrument
     address: int = -1
     # Indicate whether the voltage read should be converted into a temperature
-    measure_temp: bool = False
+    convert_to_temp: bool = False
 
 
 class DataWriter(DictWriter):
@@ -382,7 +382,7 @@ class Worker(QObject):
                     val = self.ERROR_STRING
                 else:
                     try:
-                        if i.measure_temp:
+                        if i.convert_to_temp:
                             val = str(volts_to_celcius(val))
                     except AssertionError:
                         # Issue converting value to temperature. Mark an error but

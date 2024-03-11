@@ -402,7 +402,7 @@ class TestWorker:
         temperature"""
         # Set up mocks
         address = 22
-        worker.instrument_addresses[1] = InstrumentConfig(address, measure_temp=True)
+        worker.instrument_addresses[1] = InstrumentConfig(address, convert_to_temp=True)
         voltage_str = "1E-03"
         temperature = "24.993219514361623"  # degrees Celcius, calculated
         mocked_write = MagicMock()
@@ -463,7 +463,7 @@ class TestWorker:
         returns an error"""
         # Set up mocks
         address = 22
-        worker.instrument_addresses[1] = InstrumentConfig(address, measure_temp=True)
+        worker.instrument_addresses[1] = InstrumentConfig(address, convert_to_temp=True)
         voltage_str = "12345"
         mocked_write = MagicMock()
         mocked_query = MagicMock(return_value=voltage_str)
