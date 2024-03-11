@@ -75,8 +75,7 @@ class TestConnectionManager:
     def test_start_logging_valid_params(
         self, mock_valid_parameters: MagicMock, connmgr: ConnectionManager
     ):
-        """Test that if parameters are valid (thanks to mocks), the correct
-        actions will occur"""
+        """Test that if parameters are valid, the correct actions will occur"""
         mock_valid_parameters.return_value = True
 
         assert connmgr.start_logging() is True
@@ -88,8 +87,7 @@ class TestConnectionManager:
     def test_start_logging_invalid_params(
         self, mock_valid_parameters: MagicMock, connmgr: ConnectionManager
     ):
-        """Test that if parameters are invalid (thanks to mocks), the correct
-        actions will occur"""
+        """Test that if parameters are invalid, the correct actions will occur"""
         mock_valid_parameters.return_value = False
 
         assert connmgr.start_logging() is False
