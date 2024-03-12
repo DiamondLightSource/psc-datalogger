@@ -303,8 +303,7 @@ class Worker(QObject):
             # Reversed as it's more common for it to be the last resource in the list
             for resource in reversed(resources):
                 conn = rm.open_resource(resource)
-                is_prologix = self._check_resource_is_prologix(conn)
-                if is_prologix:
+                if self._check_resource_is_prologix(conn):
                     logging.info(f"Found Prologix controller at {resource}")
                     break
             else:
@@ -324,7 +323,7 @@ class Worker(QObject):
             assert isinstance(resource, SerialInstrument)
             # We assume that only a Prologix controller will respond to ++help
             help_str = resource.query("++help")
-            if len(help_str) > 0:
+            if help_str:
                 return True
         except pyvisa.VisaIOError:
             # Timeout; probably not the right device!
