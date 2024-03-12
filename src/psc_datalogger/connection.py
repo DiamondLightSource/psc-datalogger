@@ -5,10 +5,11 @@ from csv import DictWriter
 from dataclasses import dataclass
 from datetime import datetime
 from threading import Event, RLock
-from typing import List, Optional, TextIO, Tuple
+from typing import List, Optional, TextIO, Tuple, cast
 
 import pyvisa
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
+from pyvisa.resources import Resource, SerialInstrument
 
 from .statusbar import StatusBar
 from .thermocouple.thermocouple import volts_to_celcius
@@ -150,7 +151,7 @@ class Worker(QObject):
         {1: InstrumentConfig(), 2: InstrumentConfig(), 3: InstrumentConfig()}
     )
 
-    connection: pyvisa.resources.SerialInstrument
+    connection: SerialInstrument
 
     # Constant to mark a measurement could not be taken. Also written to results file.
     ERROR_STRING = "#ERROR"
@@ -299,29 +300,42 @@ class Worker(QObject):
             logging.info(f"Resources available: {resources}")
 
             # Find the connection that is the Prologix controller
-            # Done by looking for a response to "++help" request
             # Reversed as it's more common for it to be the last resource in the list
             for resource in reversed(resources):
-                try:
-                    conn = rm.open_resource(resource)
-                    help_str = conn.query("++help")  # type: ignore
-                    if len(help_str) > 0:
-                        # Found it!
-                        logging.info(f"Found Prologix controller at {resource}")
-                        break
-                except pyvisa.VisaIOError:
-                    # Timeout; probably not the right device!
-                    logging.debug(f"No response to ++help for resource {resource}")
-                    continue
+                conn = rm.open_resource(resource)
+                is_prologix = self._check_resource_is_prologix(conn)
+                if is_prologix:
+                    logging.info(f"Found Prologix controller at {resource}")
+                    break
             else:
                 rm.close()
                 logging.error("No Prologix controller found")
                 raise PrologixNotFoundException("No Prologix controller found")
 
             # The open_resource function returns a very generic type
-            self.connection: pyvisa.resources.SerialInstrument = conn  # type: ignore
+            self.connection = cast(SerialInstrument, conn)
 
             logging.info("Connection initialized")
+
+    def _check_resource_is_prologix(self, resource: Resource) -> bool:
+        """Returns True if the given Resource is a Prologix controller, otherwise
+        False"""
+        try:
+            assert isinstance(resource, SerialInstrument)
+            # We assume that only a Prologix controller will respond to ++help
+            help_str = resource.query("++help")
+            if len(help_str) > 0:
+                return True
+        except pyvisa.VisaIOError:
+            # Timeout; probably not the right device!
+            logging.debug(f"No response to ++help for resource {resource}")
+            return False
+        except AssertionError:
+            # Not a SerialInstrument, definitely not the correct resource
+            logging.debug(f"Resource {resource} is not a SerialInstrument")
+            return False
+
+        return False
 
     def do_logging(self):
         """Take one set of readings and write them to file"""
@@ -398,8 +412,8 @@ class Worker(QObject):
                 measurements.append(val)
 
             assert len(measurements) == 3
-            # Can't specify in type system that the list is 3 long, so ignore the error
-            return measurement_time, *measurements  # type: ignore
+            measurement_tuple = cast(Tuple[str, str, str], tuple(measurements))
+            return measurement_time, *measurement_tuple
 
     def _exit(self) -> None:
         """Cleanly stop the run() method to terminate all processing.

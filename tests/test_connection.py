@@ -11,6 +11,7 @@ import pyvisa
 
 # pyright thinks this constant is not exported
 from pyvisa.errors import VI_ERROR_TMO  # type: ignore
+from pyvisa.resources import RegisterBasedResource, SerialInstrument
 
 from psc_datalogger.connection import (
     ConnectionManager,
@@ -54,6 +55,7 @@ class TestConnectionManager:
     ):
         """Test that the ConnectionManager registers the callbacks into the StatusBar
         correctly.
+
         NOT using connmgr fixture - need to test the behaviour it sets up"""
         mock_status_bar = MagicMock()
         conn_manager = ConnectionManager()
@@ -276,11 +278,11 @@ class TestWorker:
                 "CONN2",
             )
         )
-        mock_conn = MagicMock()
-        mock_conn.query = MagicMock(return_value="Response to ++help!")
+        mock_conn = MagicMock(spec=SerialInstrument)
         mock_resource_manager.open_resource = MagicMock(return_value=mock_conn)
-
         mock_resource_manager_init.return_value = mock_resource_manager
+
+        worker._check_resource_is_prologix = MagicMock(return_value=True)
 
         worker.init_connection()
 
@@ -291,6 +293,7 @@ class TestWorker:
         self,
         mock_resource_manager_init: MagicMock,
         worker: Worker,
+        caplog: pytest.LogCaptureFixture,
     ):
         """Test that init_connection emits expected error when there are no resources"""
         mock_resource_manager = MagicMock()
@@ -300,25 +303,81 @@ class TestWorker:
         with pytest.raises(PrologixNotFoundException):
             worker.init_connection()
 
+        # Check the right log messages were created
+        assert len(caplog.records) == 1
+        assert caplog.records[0].message == "No Prologix controller found"
+
     @patch("psc_datalogger.connection.pyvisa.ResourceManager")
     def test_init_connection_invalid_resource(
         self,
         mock_resource_manager_init: MagicMock,
         worker: Worker,
+        caplog: pytest.LogCaptureFixture,
     ):
         """Test that init_connection emits expected error when only invalid resources
         exist (i.e. none of them are a Prologix controller)"""
 
         mock_resource_manager = MagicMock()
         mock_resource_manager.list_resources = MagicMock(return_value=("CONN1",))
-        mock_conn = MagicMock()
-        mock_conn.query = MagicMock(side_effect=pyvisa.VisaIOError(VI_ERROR_TMO))
+        mock_conn = MagicMock(spec=SerialInstrument)
         mock_resource_manager.open_resource = MagicMock(return_value=mock_conn)
 
         mock_resource_manager_init.return_value = mock_resource_manager
 
+        worker._check_resource_is_prologix = MagicMock(return_value=False)
+
         with pytest.raises(PrologixNotFoundException):
             worker.init_connection()
+
+        # Check the right log messages were created
+        assert len(caplog.records) == 1
+        assert caplog.records[0].message == "No Prologix controller found"
+
+    def test_check_resource_is_prologix_with_prologix_resource(
+        self,
+        worker: Worker,
+    ):
+        """Test _check_resource_is_prologix returns True for a Prologix resource"""
+
+        resource = MagicMock(spec=SerialInstrument)
+        resource.query = MagicMock(return_value="Response to ++help!")
+
+        assert worker._check_resource_is_prologix(resource) is True
+
+    def test_check_resource_is_prologix_not_serial_instrument(
+        self,
+        worker: Worker,
+    ):
+        """Test _check_resource_is_prologix returns False if the resource is not a
+        SerialInstrument"""
+
+        resource = MagicMock(spec=RegisterBasedResource)
+
+        assert worker._check_resource_is_prologix(resource) is False
+
+    def test_check_resource_is_prologix_no_response(
+        self,
+        worker: Worker,
+    ):
+        """Test _check_resource_is_prologix returns False if there is no response to
+        the query"""
+
+        resource = MagicMock(spec=SerialInstrument)
+        resource.query = MagicMock(return_value="")
+
+        assert worker._check_resource_is_prologix(resource) is False
+
+    def test_check_resource_is_prologix_query_timeout(
+        self,
+        worker: Worker,
+    ):
+        """Test _check_resource_is_prologix returns False if there is a timeout on the
+        query"""
+
+        resource = MagicMock(spec=SerialInstrument)
+        resource.query = MagicMock(side_effect=pyvisa.VisaIOError(VI_ERROR_TMO))
+
+        assert worker._check_resource_is_prologix(resource) is False
 
     def test_do_logging(self, worker: Worker):
         """Test do_logging sends a query_complete signal and passes data to the
