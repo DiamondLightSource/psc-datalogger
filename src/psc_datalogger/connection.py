@@ -221,6 +221,9 @@ class Worker(QObject):
             time.sleep(0.1)  # Give Prologix a moment to process previous commands
 
             self.connection.write("PRESET NORM")  # Set a variety of defaults
+            self.connection.write(
+                "NPLC 50"
+            )  # Make trigger do 50 rapid readings and average the result
             self.connection.write("BEEP 0")  # Disable annoying beeps
             # Clear all memory buffers and disable all triggering
             self.connection.write("CLEAR")

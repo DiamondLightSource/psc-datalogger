@@ -221,6 +221,7 @@ class TestWorker:
             call(f"++addr {address}"),
             call("++auto 1"),
             call("PRESET NORM"),
+            call("NPLC 50"),
             call("BEEP 0"),
             call("CLEAR"),
             call("TRIG HOLD"),
