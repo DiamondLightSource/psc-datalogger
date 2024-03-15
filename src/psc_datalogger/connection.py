@@ -95,7 +95,7 @@ class DataWriter(DictWriter):
     ]
 
     def __init__(self, filepath: str):
-        self.file = open(filepath, "w")
+        self.file = open(filepath, "w", newline="")
 
         super().__init__(self.file, fieldnames=self.csv_fieldnames, dialect="excel")
 
