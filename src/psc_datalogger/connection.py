@@ -12,7 +12,7 @@ from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from pyvisa.resources import Resource, SerialInstrument
 
 from .statusbar import StatusBar
-from .thermocouple.thermocouple import volts_to_celcius
+from .temperature.converter import volts_to_celcius
 
 
 class ConnectionManager:

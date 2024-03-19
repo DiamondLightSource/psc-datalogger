@@ -461,7 +461,7 @@ class TestWorker:
         address = 22
         worker.instrument_addresses[1] = InstrumentConfig(address, convert_to_temp=True)
         voltage_str = "1E-03"
-        temperature = "24.993219514361623"  # degrees Celcius, calculated
+        temperature = "0.2"  # degrees Celcius, calculated from voltage_str
         mocked_write = MagicMock()
         mocked_query = MagicMock(return_value=voltage_str)
         worker.connection = MagicMock()
