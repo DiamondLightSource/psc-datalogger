@@ -20,6 +20,8 @@ dependencies = [
     "pyserial",
     "pyvisa",
     "pyvisa-py",
+    "psutil",    # Useful for pyvisa's ResourceManager.list_resources() function
+    "zeroconf",  # Useful for pyvisa's ResourceManager.list_resources() function
 ] # Add project dependencies here, e.g. ["click", "numpy"]
 dynamic = ["version"]
 license.file = "LICENSE"
@@ -38,8 +40,6 @@ dev = [
     "ruff",
     "tox-direct",
     "types-mock",
-    "psutil",     # Useful for pyvisa's ResourceManager.list_resources() function
-    "zeroconf",   # Useful for pyvisa's ResourceManager.list_resources() function
 ]
 
 [project.scripts]
