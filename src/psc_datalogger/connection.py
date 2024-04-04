@@ -51,10 +51,16 @@ class ConnectionManager:
         self._worker.set_filepath(filepath)
 
     def set_instrument(
-        self, instrument_number: int, gpib_address: str, measure_temp: bool
+        self,
+        instrument_number: int,
+        enabled: bool,
+        gpib_address: str,
+        measure_temp: bool,
     ):
         """Configure the given instrument number with the provided parameters"""
-        self._worker.set_instrument(instrument_number, gpib_address, measure_temp)
+        self._worker.set_instrument(
+            instrument_number, enabled, gpib_address, measure_temp
+        )
 
     def set_nplc(self, nplc: str) -> None:
         """Configure the NPLC value for all instruments"""
@@ -80,7 +86,8 @@ class ConnectionManager:
 class InstrumentConfig:
     """Contains the configuration for a single instrument"""
 
-    # TODO: Perhaps add "enabled" flag to mirror the GUI?
+    # Whether this instrument is marked enabled in the GUI
+    enabled: bool = False
     # GPIB address of instrument
     address: int = -1
     # Indicate whether the voltage read should be converted into a temperature
@@ -192,7 +199,11 @@ class Worker(QObject):
             self.writer = DataWriter(filepath)
 
     def set_instrument(
-        self, instrument_number: int, gpib_address: str, measure_temp: bool
+        self,
+        instrument_number: int,
+        enabled: bool,
+        gpib_address: str,
+        measure_temp: bool,
     ) -> None:
         """Configure the given instrument number with the provided parameters"""
         assert (
@@ -202,11 +213,11 @@ class Worker(QObject):
         address = int(gpib_address)
 
         logging.info(
-            f"Configuring instrument {instrument_number}; Address {gpib_address},"
-            f"measure temp {measure_temp}"
+            f"Configuring instrument {instrument_number}; Enabled {enabled},"
+            f"Address {gpib_address}, measure temp {measure_temp}"
         )
         self.instrument_configs[instrument_number] = InstrumentConfig(
-            address, measure_temp
+            enabled, address, measure_temp
         )
 
         self._init_instrument(self.instrument_configs[instrument_number])
@@ -214,12 +225,14 @@ class Worker(QObject):
     def _init_instrument(self, instrument: InstrumentConfig) -> None:
         """Initialize the given instrument"""
         logging.debug(f"Initializing instrument at address {instrument.address}")
-        gpib_address = instrument.address
 
-        if gpib_address <= 0:
-            raise ValueError(
-                f"_init_instrument called with invalid address '{gpib_address}'"
+        if not instrument.enabled:
+            logging.debug(
+                f"Skipping _init_instrument for instrument {instrument.address}"
             )
+            return
+
+        gpib_address = instrument.address
 
         with self.lock:
             self._set_prologix_address(gpib_address)
@@ -249,23 +262,29 @@ class Worker(QObject):
     def set_nplc(self, nplc: str) -> None:
         """Set the NPLC for all configured instruments"""
         nplc_int = int(nplc)
-        assert 1 <= nplc_int <= 2000, f"NPLC value {nplc_int} outside allowed range"
+        if not 1 <= nplc_int <= 2000:
+            self.error.emit(f"NPLC value {nplc_int} outside allowed range 1 - 2000")
+            return
         self.nplc = nplc_int
 
-        for instrument in self.instrument_configs.values():
-            self._set_nplc(instrument)
+        # Only configure if any instruments are enabled
+        if any(x.enabled for x in self.instrument_configs.values()):
+            # The number of samples is tied to the electrical frequency.
+            # i.e. an NPLC of 50 will take 1 second, as our mains runs at 50Hz.
+            # So we need to ensure our timeout is more-than-enough to cover it
+            # However we want to ensure we always have at least a 2 second timeout
+            timeout = max(2000, self.nplc * 100)
+            self.connection.timeout = timeout  # ms
+
+            for instrument in self.instrument_configs.values():
+                if instrument.enabled:
+                    self._set_nplc(instrument)
 
     def _set_nplc(self, instrument: InstrumentConfig) -> None:
         """Set the NPLC for the given instrument"""
         with self.lock:
             self._set_prologix_address(instrument.address)
-            # Make trigger do 50 rapid readings and average the result
             self.connection.write(f"NPLC {self.nplc}")
-
-            # The number of samples is tied to the electrical frequency.
-            # i.e. an NPLC of 50 will take 1 second, as our mains runs at 50Hz.
-            # So we need to ensure our timeout is more-than-enough to cover it
-            self.connection.timeout = self.nplc * 100  # ms
 
     def _set_prologix_address(self, gpib_address: int) -> None:
         """Configure the Prologix to point to the given GPIB address"""
@@ -275,7 +294,8 @@ class Worker(QObject):
             # which allows the controller to write data back to us!
             self.connection.write("++auto 1")
 
-            time.sleep(0.1)  # Give Prologix a moment to process previous commands
+            # Prologix seems to need a moment to process previous commands
+            time.sleep(0.1)
 
     def validate_parameters(self) -> bool:
         """Returns True if all required parameters are set, otherwise False"""
@@ -343,8 +363,9 @@ class Worker(QObject):
                     break
             else:
                 rm.close()
-                logging.error("No Prologix controller found")
-                raise PrologixNotFoundException("No Prologix controller found")
+                errmsg = "No Prologix controller found"
+                logging.error(errmsg)
+                raise PrologixNotFoundException(errmsg)
 
             # The open_resource function returns a very generic type
             self.connection = cast(SerialInstrument, conn)
