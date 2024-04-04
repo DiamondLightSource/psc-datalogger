@@ -71,14 +71,26 @@ class DataloggerMainWindow(QMainWindow):
         interval_frame.setLayout(interval_layout)
         interval_layout.addWidget(interval_label)
         interval_input = QLineEdit()
-        int_only = QIntValidator()
-        interval_input.setValidator(int_only)
+        interval_input.setValidator(QIntValidator())
         interval_input.textEdited.connect(self.connection_manager.set_interval)
         interval_layout.addWidget(interval_input)
         layout.addWidget(interval_frame)
 
         logfile_widgets = LogFileWidgets(self.connection_manager.set_filepath)
         layout.addWidget(logfile_widgets)
+
+        # Widgets for NPLC
+        nplc_frame = QFrame()
+        nplc_label = QLabel("NPLC:")
+        nplc_layout = QHBoxLayout()
+        nplc_frame.setLayout(nplc_layout)
+        nplc_layout.addWidget(nplc_label)
+        nplc_input = QLineEdit()
+        nplc_input.setText("50")
+        nplc_input.setValidator(QIntValidator())
+        nplc_input.textEdited.connect(self.connection_manager.set_nplc)
+        nplc_layout.addWidget(nplc_input)
+        layout.addWidget(nplc_frame)
 
         # Start/Stop logging buttons
         self.start_text = "Start Logging"
@@ -115,7 +127,7 @@ class DataloggerMainWindow(QMainWindow):
             self.connection_manager.stop_logging()
 
     def handle_instrument_changed(self):
-        """Handle when any of the Agilent GPIB addresses change"""
+        """Handle when any of the instrument configurations change"""
         for i in self.instruments:
             if i.isChecked():
                 address = i.get_address()

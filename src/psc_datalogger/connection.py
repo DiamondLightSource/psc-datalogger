@@ -56,6 +56,10 @@ class ConnectionManager:
         """Configure the given instrument number with the provided parameters"""
         self._worker.set_instrument(instrument_number, gpib_address, measure_temp)
 
+    def set_nplc(self, nplc: str) -> None:
+        """Configure the NPLC value for all instruments"""
+        self._worker.set_nplc(nplc)
+
     def start_logging(self) -> bool:
         """Start the logging process in the background thread.
         Returns True if logging successfully started, else False"""
@@ -76,6 +80,7 @@ class ConnectionManager:
 class InstrumentConfig:
     """Contains the configuration for a single instrument"""
 
+    # TODO: Perhaps add "enabled" flag to mirror the GUI?
     # GPIB address of instrument
     address: int = -1
     # Indicate whether the voltage read should be converted into a temperature
@@ -145,9 +150,9 @@ class Worker(QObject):
 
     writer: Optional[DataWriter] = None
 
-    # Keep track of the addresses of each of the 3 possible devices
+    # Keep track of the configuration of each of the 3 possible devices
     # Ordered dict to ensure that we always read instruments in order when iterating
-    instrument_addresses = OrderedDict(
+    instrument_configs = OrderedDict(
         {1: InstrumentConfig(), 2: InstrumentConfig(), 3: InstrumentConfig()}
     )
 
@@ -155,6 +160,10 @@ class Worker(QObject):
 
     # Constant to mark a measurement could not be taken. Also written to results file.
     ERROR_STRING = "#ERROR"
+
+    # NPLC controls the number of samples the multimeter takes (which are then averaged
+    # internally before being sent back to us)
+    nplc: int = 50
 
     def __init__(self, logging_signal: Event):
         """
@@ -196,11 +205,11 @@ class Worker(QObject):
             f"Configuring instrument {instrument_number}; Address {gpib_address},"
             f"measure temp {measure_temp}"
         )
-        self.instrument_addresses[instrument_number] = InstrumentConfig(
+        self.instrument_configs[instrument_number] = InstrumentConfig(
             address, measure_temp
         )
 
-        self._init_instrument(self.instrument_addresses[instrument_number])
+        self._init_instrument(self.instrument_configs[instrument_number])
 
     def _init_instrument(self, instrument: InstrumentConfig) -> None:
         """Initialize the given instrument"""
@@ -213,22 +222,12 @@ class Worker(QObject):
             )
 
         with self.lock:
-            self.connection.write(f"++addr {gpib_address}")
-            # Instruct Prologix to enable read-after-write,
-            # which allows the controller to write data back to us!
-            self.connection.write("++auto 1")
-
-            time.sleep(0.1)  # Give Prologix a moment to process previous commands
+            self._set_prologix_address(gpib_address)
 
             self.connection.write("PRESET NORM")  # Set a variety of defaults
             self.connection.write("BEEP 0")  # Disable annoying beeps
 
-            # Make trigger do 50 rapid readings and average the result
-            self.connection.write("NPLC 50")
-            # Increasing the NPLC from its default of 1 (set by PRESET NORM) means the
-            # measurements now take several seconds. The default timeout is too short
-            # to account for this.
-            self.connection.timeout = 5000  # ms
+            self._set_nplc(instrument)
 
             self.connection.write("TRIG HOLD")  # Disable triggering
             # This means the instrument will stop collecting measurements, thus
@@ -247,10 +246,41 @@ class Worker(QObject):
 
         logging.debug(f"Instrument initialized at address {instrument.address}")
 
+    def set_nplc(self, nplc: str) -> None:
+        """Set the NPLC for all configured instruments"""
+        nplc_int = int(nplc)
+        assert 1 <= nplc_int <= 2000, f"NPLC value {nplc_int} outside allowed range"
+        self.nplc = nplc_int
+
+        for instrument in self.instrument_configs.values():
+            self._set_nplc(instrument)
+
+    def _set_nplc(self, instrument: InstrumentConfig) -> None:
+        """Set the NPLC for the given instrument"""
+        with self.lock:
+            self._set_prologix_address(instrument.address)
+            # Make trigger do 50 rapid readings and average the result
+            self.connection.write(f"NPLC {self.nplc}")
+
+            # The number of samples is tied to the electrical frequency.
+            # i.e. an NPLC of 50 will take 1 second, as our mains runs at 50Hz.
+            # So we need to ensure our timeout is more-than-enough to cover it
+            self.connection.timeout = self.nplc * 100  # ms
+
+    def _set_prologix_address(self, gpib_address: int) -> None:
+        """Configure the Prologix to point to the given GPIB address"""
+        with self.lock:
+            self.connection.write(f"++addr {gpib_address}")
+            # Instruct Prologix to enable read-after-write,
+            # which allows the controller to write data back to us!
+            self.connection.write("++auto 1")
+
+            time.sleep(0.1)  # Give Prologix a moment to process previous commands
+
     def validate_parameters(self) -> bool:
         """Returns True if all required parameters are set, otherwise False"""
 
-        if all(x.address <= 0 for x in self.instrument_addresses.values()):
+        if all(x.address <= 0 for x in self.instrument_configs.values()):
             logging.warning("No GPIB addresses set for any instrument")
             return False
 
@@ -275,9 +305,9 @@ class Worker(QObject):
                 self.init_complete.emit()
                 break
             except PrologixNotFoundException:
-                logging.exception(
-                    "Prologix controller not found. Trying again in 5 seconds"
-                )
+                errmsg = "Prologix controller not found. Trying again in 5 seconds"
+                logging.exception(errmsg)
+                self.error.emit(errmsg)
                 time.sleep(5)
 
         while self.running:
@@ -376,7 +406,7 @@ class Worker(QObject):
             measurement_time = datetime.now()
 
             measurements: List[str] = []
-            for i in self.instrument_addresses.values():
+            for i in self.instrument_configs.values():
                 if i.address <= 0:
                     # No address, add empty entry
                     measurements.append("")
