@@ -177,7 +177,7 @@ class TestWorker:
 
         expected_config = InstrumentConfig(address, measure_temp)
 
-        assert worker.instrument_addresses[num] == expected_config
+        assert worker.instrument_configs[num] == expected_config
         mocked_init_instrument.assert_called_once_with(expected_config)
 
     def test_override_instrument(self, worker: Worker):
@@ -198,7 +198,7 @@ class TestWorker:
         expected_config = InstrumentConfig(address, measure_temp)
         worker.set_instrument(num, str(address), measure_temp)
 
-        assert worker.instrument_addresses[num] == expected_config
+        assert worker.instrument_configs[num] == expected_config
         mocked_init_instrument.assert_called_with(expected_config)
 
     @pytest.mark.parametrize("invalid_value", [-1, 0, 4, 5])
@@ -222,6 +222,8 @@ class TestWorker:
             call("++auto 1"),
             call("PRESET NORM"),
             call("BEEP 0"),
+            call(f"++addr {address}"),
+            call("++auto 1"),
             call("NPLC 50"),
             call("TRIG HOLD"),
         ]
@@ -237,7 +239,7 @@ class TestWorker:
     def test_validate_parameters(self, worker: Worker):
         """Test that validate_parameters allows through valid parameters"""
 
-        worker.instrument_addresses[1] = InstrumentConfig(23)
+        worker.instrument_configs[1] = InstrumentConfig(23)
         worker.interval = 1
         worker.writer = MagicMock()
 
@@ -257,7 +259,7 @@ class TestWorker:
     ):
         """Test that validate_parameters rejects invalid parameters"""
 
-        worker.instrument_addresses[1] = InstrumentConfig(address)
+        worker.instrument_configs[1] = InstrumentConfig(address)
         worker.interval = interval
         worker.writer = writer
 
@@ -427,7 +429,7 @@ class TestWorker:
         """Test querying the (mocked) hardware returns voltage"""
         # Set up mocks
         address = 22
-        worker.instrument_addresses[1] = InstrumentConfig(address)
+        worker.instrument_configs[1] = InstrumentConfig(address)
         voltage_str = " 9.089320482E+00\r\n"
         voltage_trimmed = "9.089320482E+00"
         mocked_write = MagicMock()
@@ -459,7 +461,7 @@ class TestWorker:
         temperature"""
         # Set up mocks
         address = 22
-        worker.instrument_addresses[1] = InstrumentConfig(address, convert_to_temp=True)
+        worker.instrument_configs[1] = InstrumentConfig(address, convert_to_temp=True)
         voltage_str = "1E-03"
         temperature = "0.2"  # degrees Celcius, calculated from voltage_str
         mocked_write = MagicMock()
@@ -490,7 +492,7 @@ class TestWorker:
         """Test that a timeout returns an error string"""
         # Set up mocks
         address = 22
-        worker.instrument_addresses[1] = InstrumentConfig(address)
+        worker.instrument_configs[1] = InstrumentConfig(address)
         mocked_write = MagicMock()
         mocked_query = MagicMock(side_effect=pyvisa.VisaIOError(VI_ERROR_TMO))
         worker.connection = MagicMock()
@@ -520,7 +522,7 @@ class TestWorker:
         returns an error"""
         # Set up mocks
         address = 22
-        worker.instrument_addresses[1] = InstrumentConfig(address, convert_to_temp=True)
+        worker.instrument_configs[1] = InstrumentConfig(address, convert_to_temp=True)
         voltage_str = "12345"
         mocked_write = MagicMock()
         mocked_query = MagicMock(return_value=voltage_str)
