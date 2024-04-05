@@ -210,7 +210,12 @@ class Worker(QObject):
             1 <= instrument_number <= 3
         ), f"Invalid instrument number {instrument_number}"
 
-        address = int(gpib_address)
+        try:
+            address = int(gpib_address)
+        except ValueError:
+            # May not be an address set in the GUI; if so convert the blank string
+            # to an invalid number
+            address = -1
 
         logging.info(
             f"Configuring instrument {instrument_number}; Enabled {enabled},"
@@ -233,6 +238,11 @@ class Worker(QObject):
             return
 
         gpib_address = instrument.address
+
+        if gpib_address <= 0:
+            raise ValueError(
+                f"_init_instrument called with invalid address '{gpib_address}'"
+            )
 
         with self.lock:
             self._set_prologix_address(gpib_address)
@@ -267,24 +277,23 @@ class Worker(QObject):
             return
         self.nplc = nplc_int
 
-        # Only configure if any instruments are enabled
-        if any(x.enabled for x in self.instrument_configs.values()):
-            # The number of samples is tied to the electrical frequency.
-            # i.e. an NPLC of 50 will take 1 second, as our mains runs at 50Hz.
-            # So we need to ensure our timeout is more-than-enough to cover it
-            # However we want to ensure we always have at least a 2 second timeout
-            timeout = max(2000, self.nplc * 100)
-            self.connection.timeout = timeout  # ms
-
-            for instrument in self.instrument_configs.values():
-                if instrument.enabled:
-                    self._set_nplc(instrument)
+        for instrument in self.instrument_configs.values():
+            if instrument.enabled:
+                self._set_nplc(instrument)
 
     def _set_nplc(self, instrument: InstrumentConfig) -> None:
         """Set the NPLC for the given instrument"""
         with self.lock:
             self._set_prologix_address(instrument.address)
             self.connection.write(f"NPLC {self.nplc}")
+
+            # The number of samples is tied to the electrical frequency.
+            # i.e. an NPLC of 50 will take 1 second, as our mains runs at 50Hz.
+            # So we need to ensure our timeout is more-than-enough to cover it
+            # However we want to ensure we always have at least a 5 second timeout
+            # as even the smallest NPLC values seem to take a few seconds to complete
+            timeout = max(5000, self.nplc * 100)
+            self.connection.timeout = timeout  # ms
 
     def _set_prologix_address(self, gpib_address: int) -> None:
         """Configure the Prologix to point to the given GPIB address"""
@@ -333,6 +342,8 @@ class Worker(QObject):
         while self.running:
             self.logging_signal.wait()
 
+            logging.debug("Starting log loop")
+
             try:
                 self.do_logging()
             except Exception:
@@ -344,6 +355,7 @@ class Worker(QObject):
             # reading from all instruments takes. This becomes a major problem if
             # timeouts occur as they invoke a 3-second delay per timeout.
             time.sleep(self.interval)
+            logging.debug("Log sleep finished")
 
     def init_connection(self):
         """Initialize the connection to the Prologix device"""
@@ -428,6 +440,7 @@ class Worker(QObject):
 
             measurements: List[str] = []
             for i in self.instrument_configs.values():
+                logging.debug(f"Querying instrument {i.address}")
                 if i.address <= 0:
                     # No address, add empty entry
                     measurements.append("")

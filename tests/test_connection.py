@@ -1,4 +1,5 @@
 import filecmp
+import logging
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -171,11 +172,12 @@ class TestWorker:
         worker._init_instrument = mocked_init_instrument
 
         num = 1
+        enabled = True
         address = 22
         measure_temp = False
-        worker.set_instrument(num, str(address), measure_temp)
+        worker.set_instrument(num, enabled, str(address), measure_temp)
 
-        expected_config = InstrumentConfig(address, measure_temp)
+        expected_config = InstrumentConfig(enabled, address, measure_temp)
 
         assert worker.instrument_configs[num] == expected_config
         mocked_init_instrument.assert_called_once_with(expected_config)
@@ -188,15 +190,17 @@ class TestWorker:
 
         # Initial values
         num = 1
+        enabled = True
         address = 22
         measure_temp = False
-        worker.set_instrument(num, str(address), measure_temp)
+        worker.set_instrument(num, enabled, str(address), measure_temp)
 
         # Override values
+        enabled = False
         address = 44
         measure_temp = True
-        expected_config = InstrumentConfig(address, measure_temp)
-        worker.set_instrument(num, str(address), measure_temp)
+        expected_config = InstrumentConfig(enabled, address, measure_temp)
+        worker.set_instrument(num, enabled, str(address), measure_temp)
 
         assert worker.instrument_configs[num] == expected_config
         mocked_init_instrument.assert_called_with(expected_config)
@@ -205,7 +209,7 @@ class TestWorker:
     def test_set_instrument_invalid_values(self, invalid_value: int, worker: Worker):
         """Test that passing invalid values raises expected exception"""
         with pytest.raises(AssertionError):
-            worker.set_instrument(invalid_value, "123", False)
+            worker.set_instrument(invalid_value, True, "123", False)
 
     def test_init_instrument(self, worker: Worker):
         """Test that init_instrument sends the expected calls to the hardware"""
@@ -214,8 +218,9 @@ class TestWorker:
         mocked_connection.bytes_in_buffer = 0
         worker.connection = mocked_connection
 
+        enabled = True
         address = 22
-        worker._init_instrument(InstrumentConfig(address))
+        worker._init_instrument(InstrumentConfig(enabled, address))
 
         expected_calls = [
             call(f"++addr {address}"),
@@ -230,16 +235,60 @@ class TestWorker:
 
         mocked_connection.write.assert_has_calls(expected_calls, any_order=False)
 
+    def test_init_instrument_disabled_instrument(
+        self,
+        worker: Worker,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        """Check that passing a disabled instrument causes nothing to happen"""
+
+        instrument = InstrumentConfig(False)
+
+        with caplog.at_level(logging.DEBUG):
+            worker._init_instrument(instrument)
+
+        # Check the right log messages were created
+        assert len(caplog.records) == 2
+        assert (
+            caplog.records[1].message
+            == f"Skipping _init_instrument for instrument {instrument.address}"
+        )
+
     @pytest.mark.parametrize("invalid_value", [0, -1])
     def test_init_instrument_invalid_values(self, invalid_value: int, worker: Worker):
         """Check that various invalid parameters raise the expected error"""
         with pytest.raises(ValueError):
-            worker._init_instrument(InstrumentConfig(invalid_value))
+            worker._init_instrument(InstrumentConfig(True, invalid_value))
+
+    def test_set_nplc(self, worker: Worker):
+        """Test that set_nplc works as expected for good values"""
+
+        # Setup
+        worker.instrument_configs[1] = InstrumentConfig(True, 5)
+        worker.connection = MagicMock()
+
+        nplc = "100"
+
+        # Run test function
+        worker.set_nplc(nplc)
+
+        # Check the set NPLC command was set and the timeout was increased
+        worker.connection.write.assert_any_call(f"NPLC {nplc}")
+        assert worker.connection.timeout == 10000
+
+    @pytest.mark.parametrize("invalid_value", ["-1", "0", "2001", "999999"])
+    def test_set_nplc_invalid_value(self, invalid_value: str, worker: Worker):
+        """Test that set_nplc rejects invalid values"""
+        worker.set_nplc(invalid_value)
+
+        assert (
+            worker.nplc == 50
+        ), "worker's NPLC value was unexpectedly altered from default"
 
     def test_validate_parameters(self, worker: Worker):
         """Test that validate_parameters allows through valid parameters"""
 
-        worker.instrument_configs[1] = InstrumentConfig(23)
+        worker.instrument_configs[1] = InstrumentConfig(True, 23)
         worker.interval = 1
         worker.writer = MagicMock()
 
@@ -259,7 +308,7 @@ class TestWorker:
     ):
         """Test that validate_parameters rejects invalid parameters"""
 
-        worker.instrument_configs[1] = InstrumentConfig(address)
+        worker.instrument_configs[1] = InstrumentConfig(True, address)
         worker.interval = interval
         worker.writer = writer
 
@@ -429,7 +478,7 @@ class TestWorker:
         """Test querying the (mocked) hardware returns voltage"""
         # Set up mocks
         address = 22
-        worker.instrument_configs[1] = InstrumentConfig(address)
+        worker.instrument_configs[1] = InstrumentConfig(True, address)
         voltage_str = " 9.089320482E+00\r\n"
         voltage_trimmed = "9.089320482E+00"
         mocked_write = MagicMock()
@@ -461,7 +510,9 @@ class TestWorker:
         temperature"""
         # Set up mocks
         address = 22
-        worker.instrument_configs[1] = InstrumentConfig(address, convert_to_temp=True)
+        worker.instrument_configs[1] = InstrumentConfig(
+            True, address, convert_to_temp=True
+        )
         voltage_str = "1E-03"
         temperature = "0.2"  # degrees Celcius, calculated from voltage_str
         mocked_write = MagicMock()
@@ -492,7 +543,7 @@ class TestWorker:
         """Test that a timeout returns an error string"""
         # Set up mocks
         address = 22
-        worker.instrument_configs[1] = InstrumentConfig(address)
+        worker.instrument_configs[1] = InstrumentConfig(True, address)
         mocked_write = MagicMock()
         mocked_query = MagicMock(side_effect=pyvisa.VisaIOError(VI_ERROR_TMO))
         worker.connection = MagicMock()
@@ -522,7 +573,9 @@ class TestWorker:
         returns an error"""
         # Set up mocks
         address = 22
-        worker.instrument_configs[1] = InstrumentConfig(address, convert_to_temp=True)
+        worker.instrument_configs[1] = InstrumentConfig(
+            True, address, convert_to_temp=True
+        )
         voltage_str = "12345"
         mocked_write = MagicMock()
         mocked_query = MagicMock(return_value=voltage_str)

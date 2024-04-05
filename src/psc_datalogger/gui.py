@@ -129,16 +129,6 @@ class DataloggerMainWindow(QMainWindow):
     def handle_instrument_changed(self):
         """Handle when any of the instrument configurations change"""
         for i in self.instruments:
-            # if i.isChecked():
-            #     enabled = True
-            #     address = i.get_address()
-            #     measure_temp = i.get_temperature_checked()
-            # else:
-            #     enabled = False
-            #     # Blank the address if the widget is disabled
-            #     address = ""
-            #     measure_temp = False
-
             self.connection_manager.set_instrument(
                 i.instrument_number,
                 i.isChecked(),
