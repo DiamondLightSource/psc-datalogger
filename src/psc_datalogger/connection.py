@@ -229,8 +229,9 @@ class Worker(QObject):
         try:
             address = int(gpib_address)
         except ValueError:
-            # May not be an address set in the GUI; if so convert the blank string
-            # to an invalid number
+            # May not be an address set in the GUI; this happens when the "enable"
+            # tickbox is first pressed and the address field is likely empty.
+            logging.info(f"gpib address '{gpib_address}' invalid")
             address = -1
 
         logging.info(
