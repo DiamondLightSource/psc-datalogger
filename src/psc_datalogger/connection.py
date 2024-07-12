@@ -56,15 +56,24 @@ class ConnectionManager:
         enabled: bool,
         gpib_address: str,
         measure_temp: bool,
-    ):
+    ) -> None:
         """Configure the given instrument number with the provided parameters"""
-        self._worker.set_instrument(
-            instrument_number, enabled, gpib_address, measure_temp
-        )
+        try:
+            self._worker.set_instrument(
+                instrument_number, enabled, gpib_address, measure_temp
+            )
+        except ConnectionNotInitialized:
+            logging.exception(
+                f"Could not set instrument {instrument_number}, parmameters: "
+                f"enabled {enabled} address {gpib_address} measure_temp {measure_temp}"
+            )
 
     def set_nplc(self, nplc: str) -> None:
         """Configure the NPLC value for all instruments"""
-        self._worker.set_nplc(nplc)
+        try:
+            self._worker.set_nplc(nplc)
+        except ConnectionNotInitialized:
+            logging.exception(f"Could not set NPLC to {nplc}")
 
     def start_logging(self) -> bool:
         """Start the logging process in the background thread.
@@ -137,6 +146,11 @@ class PrologixNotFoundException(Exception):
     """Exception thrown when the Prologix controller is not found"""
 
 
+class ConnectionNotInitialized(Exception):
+    """Exception thrown when attempting to access the serial connection when
+    it has not yet been initialized."""
+
+
 class Worker(QObject):
     """Class that does the serial connection to the instruments
 
@@ -163,6 +177,8 @@ class Worker(QObject):
         {1: InstrumentConfig(), 2: InstrumentConfig(), 3: InstrumentConfig()}
     )
 
+    # The connection to the Prologix controller. Do not directly access, use the
+    # _connection_* wrapper functions.
     connection: SerialInstrument
 
     # Constant to mark a measurement could not be taken. Also written to results file.
@@ -247,12 +263,12 @@ class Worker(QObject):
         with self.lock:
             self._set_prologix_address(gpib_address)
 
-            self.connection.write("PRESET NORM")  # Set a variety of defaults
-            self.connection.write("BEEP 0")  # Disable annoying beeps
+            self._connection_write("PRESET NORM")  # Set a variety of defaults
+            self._connection_write("BEEP 0")  # Disable annoying beeps
 
             self._set_nplc(instrument)
 
-            self.connection.write("TRIG HOLD")  # Disable triggering
+            self._connection_write("TRIG HOLD")  # Disable triggering
             # This means the instrument will stop collecting measurements, thus
             # not filling its internal memory buffer. Later we will send single
             # trigger events and immediately read it, thus keeping the buffer
@@ -261,9 +277,9 @@ class Worker(QObject):
             # Finally, read all data remaining in the buffer; it is possible for
             # samples to be taken in the time between us sending the various above
             # commands
-            while self.connection.bytes_in_buffer:
+            while self._connection_bytes_in_buffer():
                 try:
-                    self.connection.read()
+                    self._connection_read()
                 except pyvisa.VisaIOError:
                     logging.debug(f"Instrument {gpib_address} data buffer emptied")
 
@@ -285,7 +301,7 @@ class Worker(QObject):
         """Set the NPLC for the given instrument"""
         with self.lock:
             self._set_prologix_address(instrument.address)
-            self.connection.write(f"NPLC {self.nplc}")
+            self._connection_write(f"NPLC {self.nplc}")
 
             # The number of samples is tied to the electrical frequency.
             # i.e. an NPLC of 50 will take 1 second, as our mains runs at 50Hz.
@@ -293,15 +309,15 @@ class Worker(QObject):
             # However we want to ensure we always have at least a 5 second timeout
             # as even the smallest NPLC values seem to take a few seconds to complete
             timeout = max(5000, self.nplc * 100)
-            self.connection.timeout = timeout  # ms
+            self._connection_timeout(timeout)  # ms
 
     def _set_prologix_address(self, gpib_address: int) -> None:
         """Configure the Prologix to point to the given GPIB address"""
         with self.lock:
-            self.connection.write(f"++addr {gpib_address}")
+            self._connection_write(f"++addr {gpib_address}")
             # Instruct Prologix to enable read-after-write,
             # which allows the controller to write data back to us!
-            self.connection.write("++auto 1")
+            self._connection_write("++auto 1")
 
             # Prologix seems to need a moment to process previous commands
             time.sleep(0.1)
@@ -408,7 +424,7 @@ class Worker(QObject):
         """Take one set of readings and write them to file"""
 
         with self.lock:
-            assert self.connection is not None
+            self._connection_check()
             assert self.writer is not None
 
             results = self.query_instruments()
@@ -448,11 +464,11 @@ class Worker(QObject):
 
                 try:
                     # Configure Prologix to talk to the current device
-                    self.connection.write(f"++addr {i.address}")
+                    self._connection_write(f"++addr {i.address}")
 
                     logging.debug(f"Triggering instrument {i.address}")
                     # Request a single measurement
-                    val: str = self.connection.query("TRIG SGL")
+                    val = self._connection_query("TRIG SGL")
 
                     logging.debug(f"Address {i.address} Value {val}")
 
@@ -492,3 +508,41 @@ class Worker(QObject):
         # Note it will do 1 more iteration of the loop, inlcuding the sleep
         self.running = False
         self.logging_signal.set()
+
+    def _connection_check(self) -> None:
+        """Check whether connection is initialized.
+
+        Mostly required to guard against potential checks before the Prologix
+        controller has connected (or maybe there isn't even one plugged in yet!)"""
+        if not hasattr(self, "connection"):
+            logging.warning(
+                "Attempted to write to connection when it was not initialized"
+            )
+            raise ConnectionNotInitialized()
+
+    def _connection_write(self, command: str) -> None:
+        """Wrapper for all connection write commands."""
+        self._connection_check()
+        self.connection.write(command)
+
+    def _connection_bytes_in_buffer(self) -> int:
+        """Wrapper for accessing connection.bytes_in_buffer"""
+        self._connection_check()
+        return self.connection.bytes_in_buffer
+
+    def _connection_read(self) -> str:
+        """Wrapper for all connection read commands."""
+        self._connection_check()
+        return self.connection.read()
+
+    def _connection_timeout(self, timeout: int) -> None:
+        """Wrapper for setting connection timeout.
+
+        Timeout is in milliseconds."""
+        self._connection_check()
+        self.connection.timeout = timeout
+
+    def _connection_query(self, command: str) -> str:
+        """Wrapper for all connection query commands."""
+        self._connection_check()
+        return self.connection.query(command)
