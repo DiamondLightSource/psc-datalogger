@@ -129,12 +129,19 @@ class DataloggerMainWindow(QMainWindow):
     def handle_instrument_changed(self):
         """Handle when any of the instrument configurations change"""
         for i in self.instruments:
-            self.connection_manager.set_instrument(
-                i.instrument_number,
-                i.isChecked(),
-                i.get_address(),
-                i.get_temperature_checked(),
-            )
+            try:
+                self.connection_manager.set_instrument(
+                    i.instrument_number,
+                    i.isChecked(),
+                    i.get_address(),
+                    i.get_temperature_checked(),
+                )
+            except ValueError:
+                # Expected when first activating an instrument; the Address field
+                # will be empty
+                logging.exception(
+                    f"ValueError when initializing instrument {i.instrument_number}"
+                )
 
 
 class LogFileWidgets(QFrame):
