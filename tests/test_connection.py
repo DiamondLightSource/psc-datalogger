@@ -16,6 +16,7 @@ from pyvisa.resources import RegisterBasedResource, SerialInstrument
 
 from psc_datalogger.connection import (
     ConnectionManager,
+    ConnectionNotInitialized,
     DataWriter,
     InstrumentConfig,
     PrologixNotFoundException,
@@ -104,6 +105,38 @@ class TestConnectionManager:
 
         assert connmgr.logging_signal.is_set() is False
         self.mock_status_bar.logging_stopped.assert_called_once()
+
+    def test_set_instrument_handles_expected_exception(
+        self, connmgr: ConnectionManager, caplog: pytest.LogCaptureFixture
+    ):
+        """Test that set_instrument handles the ConnectionNotInitialized exception"""
+
+        mocked_worker = MagicMock()
+        mock_set_instrument = MagicMock(side_effect=ConnectionNotInitialized)
+        mocked_worker.set_instrument = mock_set_instrument
+        connmgr._worker = mocked_worker
+
+        with caplog.at_level(logging.ERROR):
+            connmgr.set_instrument(0, False, "10", False)  # parameters don't matter
+
+        # Check that the expected message appears
+        assert "Could not set instrument" in caplog.text
+
+    def test_set_nplc_handles_expected_exception(
+        self, connmgr: ConnectionManager, caplog: pytest.LogCaptureFixture
+    ):
+        """Test that set_nplc handles the ConnectionNotInitialized exception"""
+
+        mocked_worker = MagicMock()
+        mock_set_nplc = MagicMock(side_effect=ConnectionNotInitialized)
+        mocked_worker.set_nplc = mock_set_nplc
+        connmgr._worker = mocked_worker
+
+        with caplog.at_level(logging.ERROR):
+            connmgr.set_nplc("123")  # parameters don't matter
+
+        # Check that the expected message appears
+        assert "Could not set NPLC" in caplog.text
 
 
 class TestDataWriter:
@@ -234,6 +267,22 @@ class TestWorker:
         ]
 
         mocked_connection.write.assert_has_calls(expected_calls, any_order=False)
+
+    def test_init_instrument_empties_read_buffer(self, worker: Worker):
+        """Test that _init_instrument reads all of the bytes out of the connection
+        before returning"""
+        mocked_connection_bytes_in_buffer = MagicMock(side_effect=[100, 50, 25, 0])
+        worker._connection_bytes_in_buffer = mocked_connection_bytes_in_buffer
+
+        mocked_connection = MagicMock()
+        mocked_connection.read = MagicMock(side_effect=["some", "random", "data"])
+        worker.connection = mocked_connection
+
+        enabled = True
+        address = 22
+        worker._init_instrument(InstrumentConfig(enabled, address))
+
+        assert mocked_connection.read.call_count == 3
 
     def test_init_instrument_disabled_instrument(
         self,
@@ -597,3 +646,8 @@ class TestWorker:
 
         mocked_write.assert_called_once_with(f"++addr {address}")
         mocked_query.assert_called_once_with("TRIG SGL")
+
+    def test_connection_check_no_connection(self, worker: Worker):
+        """Test that when there is no connection the expected exception is raised"""
+        with pytest.raises(ConnectionNotInitialized):
+            worker._connection_check()
