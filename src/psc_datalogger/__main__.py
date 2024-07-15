@@ -2,8 +2,10 @@ import logging
 import sys
 from argparse import ArgumentParser, Namespace
 
-from . import __version__
-from .gui import application
+# Note: It's important to use full package name here, otherwise Windows
+# exe build tool can't find the module
+from psc_datalogger import __version__
+from psc_datalogger.gui import application
 
 __all__ = ["main"]
 
