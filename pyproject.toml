@@ -33,6 +33,7 @@ dev = [
     "copier",
     "pipdeptree",
     "pre-commit",
+    "pyinstaller",
     "pyright",
     "pytest",
     "pytest-cov",
