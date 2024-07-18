@@ -249,7 +249,7 @@ class TestWorker:
 
         mocked_connection = MagicMock()
         mocked_connection.bytes_in_buffer = 0
-        worker.connection = mocked_connection
+        worker._connection = mocked_connection
 
         enabled = True
         address = 22
@@ -276,7 +276,7 @@ class TestWorker:
 
         mocked_connection = MagicMock()
         mocked_connection.read = MagicMock(side_effect=["some", "random", "data"])
-        worker.connection = mocked_connection
+        worker._connection = mocked_connection
 
         enabled = True
         address = 22
@@ -314,7 +314,7 @@ class TestWorker:
 
         # Setup
         worker.instrument_configs[1] = InstrumentConfig(True, 5)
-        worker.connection = MagicMock()
+        worker._connection = MagicMock()
 
         nplc = "100"
 
@@ -322,8 +322,8 @@ class TestWorker:
         worker.set_nplc(nplc)
 
         # Check the set NPLC command was set and the timeout was increased
-        worker.connection.write.assert_any_call(f"NPLC {nplc}")
-        assert worker.connection.timeout == 10000
+        worker._connection.write.assert_any_call(f"NPLC {nplc}")
+        assert worker._connection.timeout == 10000
 
     @pytest.mark.parametrize("invalid_value", ["-1", "0", "2001", "999999"])
     def test_set_nplc_invalid_value(self, invalid_value: str, worker: Worker):
@@ -386,7 +386,7 @@ class TestWorker:
 
         worker.init_connection()
 
-        assert worker.connection == mock_conn
+        assert worker._connection == mock_conn
 
     @patch("psc_datalogger.connection.pyvisa.ResourceManager")
     def test_init_connection_no_resources(
@@ -484,7 +484,7 @@ class TestWorker:
         writer"""
 
         # Setup all mocks
-        worker.connection = True  # type: ignore
+        worker._connection = True  # type: ignore
         worker.writer = MagicMock()
         worker.query_complete = MagicMock()
         now = datetime.now()
@@ -504,7 +504,7 @@ class TestWorker:
         """Test do_logging sends an error signal with invalid data"""
 
         # Setup all mocks
-        worker.connection = True  # type: ignore
+        worker._connection = True  # type: ignore
         worker.writer = MagicMock()
         worker.error = MagicMock()
         now = datetime.now()
@@ -532,9 +532,9 @@ class TestWorker:
         voltage_trimmed = "9.089320482E+00"
         mocked_write = MagicMock()
         mocked_query = MagicMock(return_value=voltage_str)
-        worker.connection = MagicMock()
-        worker.connection.write = mocked_write
-        worker.connection.query = mocked_query
+        worker._connection = MagicMock()
+        worker._connection.write = mocked_write
+        worker._connection.query = mocked_query
 
         now = datetime.now()
         mocked_datetime.now.return_value = now
@@ -566,9 +566,9 @@ class TestWorker:
         temperature = "0.2"  # degrees Celcius, calculated from voltage_str
         mocked_write = MagicMock()
         mocked_query = MagicMock(return_value=voltage_str)
-        worker.connection = MagicMock()
-        worker.connection.write = mocked_write
-        worker.connection.query = mocked_query
+        worker._connection = MagicMock()
+        worker._connection.write = mocked_write
+        worker._connection.query = mocked_query
 
         now = datetime.now()
         mocked_datetime.now.return_value = now
@@ -595,9 +595,9 @@ class TestWorker:
         worker.instrument_configs[1] = InstrumentConfig(True, address)
         mocked_write = MagicMock()
         mocked_query = MagicMock(side_effect=pyvisa.VisaIOError(VI_ERROR_TMO))
-        worker.connection = MagicMock()
-        worker.connection.write = mocked_write
-        worker.connection.query = mocked_query
+        worker._connection = MagicMock()
+        worker._connection.write = mocked_write
+        worker._connection.query = mocked_query
 
         now = datetime.now()
         mocked_datetime.now.return_value = now
@@ -628,9 +628,9 @@ class TestWorker:
         voltage_str = "12345"
         mocked_write = MagicMock()
         mocked_query = MagicMock(return_value=voltage_str)
-        worker.connection = MagicMock()
-        worker.connection.write = mocked_write
-        worker.connection.query = mocked_query
+        worker._connection = MagicMock()
+        worker._connection.write = mocked_write
+        worker._connection.query = mocked_query
 
         now = datetime.now()
         mocked_datetime.now.return_value = now
