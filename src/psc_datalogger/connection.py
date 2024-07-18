@@ -179,7 +179,7 @@ class Worker(QObject):
 
     # The connection to the Prologix controller. Do not directly access, use the
     # _connection_* wrapper functions.
-    connection: SerialInstrument
+    _connection: SerialInstrument
 
     # Constant to mark a measurement could not be taken. Also written to results file.
     ERROR_STRING = "#ERROR"
@@ -397,7 +397,7 @@ class Worker(QObject):
                 raise PrologixNotFoundException(errmsg)
 
             # The open_resource function returns a very generic type
-            self.connection = cast(SerialInstrument, conn)
+            self._connection = cast(SerialInstrument, conn)
 
             logging.info("Connection initialized")
 
@@ -515,7 +515,7 @@ class Worker(QObject):
 
         Mostly required to guard against potential checks before the Prologix
         controller has connected (or maybe there isn't even one plugged in yet!)"""
-        if not hasattr(self, "connection"):
+        if not hasattr(self, "_connection"):
             logging.warning(
                 "Attempted to write to connection when it was not initialized"
             )
@@ -524,26 +524,26 @@ class Worker(QObject):
     def _connection_write(self, command: str) -> None:
         """Write the given command to the connection"""
         self._connection_check()
-        self.connection.write(command)
+        self._connection.write(command)
 
     def _connection_bytes_in_buffer(self) -> int:
         """Access connection.bytes_in_buffer"""
         self._connection_check()
-        return self.connection.bytes_in_buffer
+        return self._connection.bytes_in_buffer
 
     def _connection_read(self) -> str:
         """Read data from the connection"""
         self._connection_check()
-        return self.connection.read()
+        return self._connection.read()
 
     def _set_connection_timeout(self, timeout: int) -> None:
         """Set timeout on the connection.
 
         Timeout is in milliseconds."""
         self._connection_check()
-        self.connection.timeout = timeout
+        self._connection.timeout = timeout
 
     def _connection_query(self, command: str) -> str:
         """Write the given command to the connection and read the result"""
         self._connection_check()
-        return self.connection.query(command)
+        return self._connection.query(command)
