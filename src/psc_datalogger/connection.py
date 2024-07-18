@@ -310,7 +310,7 @@ class Worker(QObject):
             # However we want to ensure we always have at least a 5 second timeout
             # as even the smallest NPLC values seem to take a few seconds to complete
             timeout = max(5000, self.nplc * 100)
-            self._connection_timeout(timeout)  # ms
+            self._set_connection_timeout(timeout)  # ms
 
     def _set_prologix_address(self, gpib_address: int) -> None:
         """Configure the Prologix to point to the given GPIB address"""
@@ -522,28 +522,28 @@ class Worker(QObject):
             raise ConnectionNotInitialized()
 
     def _connection_write(self, command: str) -> None:
-        """Wrapper for all connection write commands."""
+        """Write the given command to the connection"""
         self._connection_check()
         self.connection.write(command)
 
     def _connection_bytes_in_buffer(self) -> int:
-        """Wrapper for accessing connection.bytes_in_buffer"""
+        """Access connection.bytes_in_buffer"""
         self._connection_check()
         return self.connection.bytes_in_buffer
 
     def _connection_read(self) -> str:
-        """Wrapper for all connection read commands."""
+        """Read data from the connection"""
         self._connection_check()
         return self.connection.read()
 
-    def _connection_timeout(self, timeout: int) -> None:
-        """Wrapper for setting connection timeout.
+    def _set_connection_timeout(self, timeout: int) -> None:
+        """Set timeout on the connection.
 
         Timeout is in milliseconds."""
         self._connection_check()
         self.connection.timeout = timeout
 
     def _connection_query(self, command: str) -> str:
-        """Wrapper for all connection query commands."""
+        """Write the given command to the connection and read the result"""
         self._connection_check()
         return self.connection.query(command)

@@ -139,8 +139,9 @@ class DataloggerMainWindow(QMainWindow):
             except ValueError:
                 # Expected when first activating an instrument; the Address field
                 # will be empty
-                logging.exception(
-                    f"ValueError when initializing instrument {i.instrument_number}"
+                logging.warning(
+                    f"Exception when initializing instrument {i.instrument_number}",
+                    exc_info=True,
                 )
 
 
