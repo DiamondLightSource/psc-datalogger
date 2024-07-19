@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from . import __version__
 from .connection import ConnectionManager
 from .statusbar import StatusBar
 
@@ -37,7 +38,7 @@ class DataloggerMainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PSC Datalogger")
+        self.setWindowTitle(f"PSC Datalogger {__version__}")
 
         self.connection_manager = ConnectionManager()
 
