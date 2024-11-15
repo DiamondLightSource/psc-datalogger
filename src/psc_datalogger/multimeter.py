@@ -22,6 +22,16 @@ class Multimeter(ABC):
     """Generic type of Multimeters. Provides interface for possible operations
     on different controllers"""
 
+    # The minimum and maximum valid NPLC values.
+    nplc_min = None
+    nplc_max = None
+
+    def __init__(self):
+        if self.nplc_min is None or self.nplc_max is None:
+            raise NotImplementedError(
+                "Subclasses must define nplc_min and nplc_max attributes"
+            )
+
     @abstractmethod
     def initialize(self, connection: SerialInstrument):
         """Perform the commands to  initialize (or reset) the multimeter to a
@@ -40,6 +50,9 @@ class Multimeter(ABC):
 class Agilent3458A(Multimeter):
     """Implements the required commands for an Agilent 3458A multimeter"""
 
+    nplc_min = 1
+    nplc_max = 2000
+
     def initialize(self, connection: SerialInstrument):
         self._ensure_prologix_settings(connection)
         connection.write("PRESET NORM")  # Set a variety of defaults
@@ -55,10 +68,8 @@ class Agilent3458A(Multimeter):
 
     def set_nplc(self, connection: SerialInstrument, nplc: int):
         self._ensure_prologix_settings(connection)
-        min = 1
-        max = 2000
-        if not min <= nplc <= max:
-            raise InvalidNplcException(min, max)
+        if not self.nplc_min <= nplc <= self.nplc_max:
+            raise InvalidNplcException(self.nplc_min, self.nplc_max)
 
         connection.write(f"NPLC {nplc}")
 
@@ -74,6 +85,9 @@ class Agilent3458A(Multimeter):
 class Agilent34401A(Multimeter):
     """Implements the required commands for an Agilent 34401A multimeter"""
 
+    nplc_min = 0.02
+    nplc_max = 100
+
     def initialize(self, connection: SerialInstrument):
         self._ensure_prologix_settings(connection)
         connection.write("*RST")  # Reset the multimeter to its power-on configuration.
@@ -86,10 +100,8 @@ class Agilent34401A(Multimeter):
     def set_nplc(self, connection: SerialInstrument, nplc: int):
         self._ensure_prologix_settings(connection)
 
-        min = 0.02
-        max = 100
-        if not min <= nplc <= max:
-            raise InvalidNplcException(min, max)
+        if not self.nplc_min <= nplc <= self.nplc_max:
+            raise InvalidNplcException(self.nplc_min, self.nplc_max)
 
         connection.write(f"VOLT:DC:NPLCYCLES {nplc}")
 
