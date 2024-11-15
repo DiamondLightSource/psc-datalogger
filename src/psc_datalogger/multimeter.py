@@ -1,0 +1,128 @@
+import logging
+import time
+from abc import ABC, abstractmethod
+
+from pyvisa.resources import SerialInstrument
+
+
+class InvalidNplcException(Exception):
+    """Exception thrown when user attempts to input an NPLC value that is
+    not valid for one-or-more multimeters"""
+
+    min_allowed: float
+    max_allowed: float
+
+    def __init__(self, min_allowed: float, max_allowed: float, *args):
+        self.min_allowed = min_allowed
+        self.max_allowed = max_allowed
+        super().__init__(args)
+
+
+class Multimeter(ABC):
+    """Generic type of Multimeters. Provides interface for possible operations
+    on different controllers"""
+
+    @abstractmethod
+    def initialize(self, connection: SerialInstrument):
+        """Perform the commands to  initialize (or reset) the multimeter to a
+        known state"""
+
+    @abstractmethod
+    def set_nplc(self, connection: SerialInstrument, nplc: int):
+        """Perform the commands to set the given nplc. Raises InvalidNplcException if
+        nplc is invalid."""
+
+    @abstractmethod
+    def take_reading(self, connection: SerialInstrument) -> str:
+        """Perform the commands to return a single voltage reading"""
+
+
+class Agilent3458A(Multimeter):
+    """Implements the required commands for an Agilent 3458A multimeter"""
+
+    def initialize(self, connection: SerialInstrument):
+        self._ensure_prologix_settings(connection)
+        connection.write("PRESET NORM")  # Set a variety of defaults
+        connection.write("BEEP 0")  # Disable annoying beeps
+
+        # This means the instrument will stop collecting measurements, thus
+        # not filling its internal memory buffer. Later we will send single
+        # trigger events and immediately read it, thus keeping the buffer
+        # empty so we avoid reading stale results
+        connection.write("TRIG HOLD")
+
+        logging.info("Initialized Agilent3458A")
+
+    def set_nplc(self, connection: SerialInstrument, nplc: int):
+        self._ensure_prologix_settings(connection)
+        min = 1
+        max = 2000
+        if not min <= nplc <= max:
+            raise InvalidNplcException(min, max)
+
+        connection.write(f"NPLC {nplc}")
+
+    def take_reading(self, connection: SerialInstrument) -> str:
+        # Send single trigger command to the multimeter, and return the resultant value
+        return connection.query("TRIG SGL")
+
+    def _ensure_prologix_settings(self, connection: SerialInstrument):
+        connection.write("++auto 1")  # Enables use of "query"
+        connection.read_termination = "\r\n"
+
+
+class Agilent34401A(Multimeter):
+    """Implements the required commands for an Agilent 34401A multimeter"""
+
+    def initialize(self, connection: SerialInstrument):
+        self._ensure_prologix_settings(connection)
+        connection.write("*RST")  # Reset the multimeter to its power-on configuration.
+        # Configure for voltage reading with range of 10V, resolution of 0.003
+        connection.write("CONFigure:VOLTage:DC 10, 0.003")
+        connection.write("SYSTEM:BEEPER:STATE OFF")  # Disable system beeps
+
+        logging.info("Initialized Agilent34401A")
+
+    def set_nplc(self, connection: SerialInstrument, nplc: int):
+        self._ensure_prologix_settings(connection)
+
+        min = 0.02
+        max = 100
+        if not min <= nplc <= max:
+            raise InvalidNplcException(min, max)
+
+        connection.write(f"VOLT:DC:NPLCYCLES {nplc}")
+
+    def take_reading(self, connection: SerialInstrument) -> str:
+        self._ensure_prologix_settings(connection)
+
+        # Get the currently configured NPLC setting, to allow us to estimate how
+        # long the subsequent voltage reading will take
+        connection.write("VOLT:DC:NPLCYCLES?")
+        nplc = connection.query("++read eoi")
+
+        # Triggers a single reading of the multimeter, which will save the data
+        # into internal memory. This can take several seconds, based on NPLC setting.
+        connection.write("INIT")
+
+        # Estimate how long to wait. An NPLC of 50 should take 1 second (matches
+        # electrical frequency). Add 1 for some padding.
+        wait_time = (float(self._clean_string(nplc)) / 50) + 1
+        time.sleep(wait_time)
+
+        # Data should now be in internal memory; tell the multimeter to move it
+        # to output buffer, then tell the Prologix controller to read it.
+        connection.write("FETCH?")
+        volts = connection.query("++read eoi")
+
+        return self._clean_string(volts)
+
+    def _clean_string(self, volts: str) -> str:
+        """Clean up the returned string by removing extraneous characters"""
+        return volts.replace("\x00", "")
+
+    def _ensure_prologix_settings(self, connection: SerialInstrument):
+        # "auto 1" triggers error -420 "Query Unterminated" errors, so must do manual
+        # explicit write and reads
+        connection.write("++auto 0")
+        connection.read_termination = "\n"

@@ -4,9 +4,10 @@
 
 # psc_datalogger
 
-Provide a GUI interface to allow logging voltages from one to three Agilent 3458A Multimeters.
+Provide a GUI interface to allow logging measurements from one to three Multimeters. Supported multimeters are the
+Agilent 3458A and 34401A devices.
 Logging is done at a configurable interval. It can be also be configured to convert voltage readings into
-a temperature, if a Type K Thermocouple is in use.
+a temperature, if a Analog Devices AD8494 Thermocouple Amplifier is connected to the multimeter.
 The data is output in a CSV format.
 
 ![GUI](images/gui.png)

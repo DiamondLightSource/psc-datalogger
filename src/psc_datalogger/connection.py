@@ -5,21 +5,20 @@ from csv import DictWriter
 from dataclasses import dataclass
 from datetime import datetime
 from threading import Event, RLock
-from typing import List, Optional, TextIO, Tuple, cast
+from typing import List, Optional, TextIO, Tuple, Type, cast
 
 import pyvisa
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from pyvisa.resources import Resource, SerialInstrument
 
+from .multimeter import Agilent3458A, InvalidNplcException, Multimeter
 from .statusbar import StatusBar
 from .temperature.converter import volts_to_celcius
 
 
 class ConnectionManager:
-    """Manage the connection to the instruments
-
-    NOTE: There is expected to only be 1 Prologix device connected, which
-    will talk to up to 3 Agilent3458A Multimeters"""
+    """Manage the connection to the instruments, which is handled on a separate
+    thread."""
 
     def __init__(self):
         self.thread = QThread()
@@ -56,11 +55,12 @@ class ConnectionManager:
         enabled: bool,
         gpib_address: str,
         measure_temp: bool,
+        multimeter_type: Type[Multimeter],
     ) -> None:
         """Configure the given instrument number with the provided parameters"""
         try:
             self._worker.set_instrument(
-                instrument_number, enabled, gpib_address, measure_temp
+                instrument_number, enabled, gpib_address, measure_temp, multimeter_type
             )
         except ConnectionNotInitialized:
             logging.exception(
@@ -101,6 +101,8 @@ class InstrumentConfig:
     address: int = -1
     # Indicate whether the voltage read should be converted into a temperature
     convert_to_temp: bool = False
+    # The multimeter in use. Default to 3458A, matching the GUI's default
+    multimeter: Multimeter = Agilent3458A()
 
 
 class DataWriter(DictWriter):
@@ -220,6 +222,7 @@ class Worker(QObject):
         enabled: bool,
         gpib_address: str,
         measure_temp: bool,
+        multimeter_type: Type[Multimeter],
     ) -> None:
         """Configure the given instrument number with the provided parameters"""
         assert (
@@ -239,7 +242,7 @@ class Worker(QObject):
             f"Address {gpib_address}, measure temp {measure_temp}"
         )
         self.instrument_configs[instrument_number] = InstrumentConfig(
-            enabled, address, measure_temp
+            enabled, address, measure_temp, multimeter_type()
         )
 
         self._init_instrument(self.instrument_configs[instrument_number])
@@ -261,23 +264,18 @@ class Worker(QObject):
                 f"_init_instrument called with invalid address '{gpib_address}'"
             )
 
+        multimeter = instrument.multimeter
+
         with self.lock:
             self._set_prologix_address(gpib_address)
 
-            self._connection_write("PRESET NORM")  # Set a variety of defaults
-            self._connection_write("BEEP 0")  # Disable annoying beeps
+            multimeter.initialize(self._connection)
 
             self._set_nplc(instrument)
 
-            self._connection_write("TRIG HOLD")  # Disable triggering
-            # This means the instrument will stop collecting measurements, thus
-            # not filling its internal memory buffer. Later we will send single
-            # trigger events and immediately read it, thus keeping the buffer
-            # empty so we avoid reading stale results
-
-            # Finally, read all data remaining in the buffer; it is possible for
-            # samples to be taken in the time between us sending the various above
-            # commands
+            # Read all data remaining in the buffer; it is possible for
+            # samples to be taken while initializing the multimeters.
+            # (Mostly an issue with the 3458A but doesn't hurt for other types)
             while self._connection_bytes_in_buffer():
                 try:
                     self._connection_read()
@@ -288,21 +286,25 @@ class Worker(QObject):
 
     def set_nplc(self, nplc: str) -> None:
         """Set the NPLC for all configured instruments"""
-        nplc_int = int(nplc)
-        if not 1 <= nplc_int <= 2000:
-            self.error.emit(f"NPLC value {nplc_int} outside allowed range 1 - 2000")
+        try:
+            for instrument in self.instrument_configs.values():
+                if instrument.enabled:
+                    self._set_nplc(instrument)
+        except InvalidNplcException as e:
+            self.error.emit(
+                f"NPLC value {self.nplc} outside allowed range "
+                f"{e.min_allowed} - {e.max_allowed}"
+            )
             return
-        self.nplc = nplc_int
-
-        for instrument in self.instrument_configs.values():
-            if instrument.enabled:
-                self._set_nplc(instrument)
 
     def _set_nplc(self, instrument: InstrumentConfig) -> None:
         """Set the NPLC for the given instrument"""
         with self.lock:
             self._set_prologix_address(instrument.address)
-            self._connection_write(f"NPLC {self.nplc}")
+
+            multimeter = instrument.multimeter
+
+            multimeter.set_nplc(self._connection, self.nplc)
 
             # The number of samples is tied to the electrical frequency.
             # i.e. an NPLC of 50 will take 1 second, as our mains runs at 50Hz.
@@ -316,11 +318,7 @@ class Worker(QObject):
         """Configure the Prologix to point to the given GPIB address"""
         with self.lock:
             self._connection_write(f"++addr {gpib_address}")
-            # Instruct Prologix to enable read-after-write,
-            # which allows the controller to write data back to us!
-            self._connection_write("++auto 1")
-
-            # Prologix seems to need a moment to process previous commands
+            # Prologix seems to need a moment to process previous command
             time.sleep(0.1)
 
     def validate_parameters(self) -> bool:
@@ -468,8 +466,11 @@ class Worker(QObject):
                     self._connection_write(f"++addr {i.address}")
 
                     logging.debug(f"Triggering instrument {i.address}")
+
+                    multimeter = i.multimeter
+
                     # Request a single measurement
-                    val = self._connection_query("TRIG SGL")
+                    val = multimeter.take_reading(self._connection)
 
                     logging.debug(f"Address {i.address} Value {val}")
 
@@ -506,7 +507,7 @@ class Worker(QObject):
         if self.writer:
             self.writer.close()
         # Send relevant flags to allow run() to terminate
-        # Note it will do 1 more iteration of the loop, inlcuding the sleep
+        # Note it will do 1 more iteration of the loop, including the sleep
         self.running = False
         self.logging_signal.set()
 
