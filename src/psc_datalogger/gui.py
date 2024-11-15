@@ -50,6 +50,7 @@ class DataloggerMainWindow(QMainWindow):
         self.create_widgets()
 
         self.connection_manager.set_status_bar(self.status_bar)
+        self.connection_manager.set_nplc_input(self.nplc_input)
         self.connection_manager.start()
 
     def create_widgets(self) -> None:
@@ -91,11 +92,11 @@ class DataloggerMainWindow(QMainWindow):
         nplc_layout = QHBoxLayout()
         nplc_frame.setLayout(nplc_layout)
         nplc_layout.addWidget(nplc_label)
-        nplc_input = QLineEdit()
-        nplc_input.setText("50")
-        nplc_input.setValidator(QIntValidator())
-        nplc_input.textEdited.connect(self.connection_manager.set_nplc)
-        nplc_layout.addWidget(nplc_input)
+        self.nplc_input = QLineEdit()
+        self.nplc_input.setText("50")
+        self.nplc_input.setValidator(QIntValidator())
+        self.nplc_input.textEdited.connect(self.connection_manager.set_nplc)
+        nplc_layout.addWidget(self.nplc_input)
         layout.addWidget(nplc_frame)
 
         # Start/Stop logging buttons

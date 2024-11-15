@@ -30,3 +30,6 @@ class StatusBar(QStatusBar):
 
     def logging_stopped(self):
         self.status_label.setText("Logging Stopped.")
+
+    def clear_status(self):
+        self.status_label.setText("")

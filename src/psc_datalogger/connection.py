@@ -9,6 +9,7 @@ from typing import List, Optional, TextIO, Tuple, Type, cast
 
 import pyvisa
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
+from PyQt5.QtWidgets import QLineEdit
 from pyvisa.resources import Resource, SerialInstrument
 
 from .multimeter import Agilent3458A, InvalidNplcException, Multimeter
@@ -39,6 +40,11 @@ class ConnectionManager:
         self._worker.query_complete.connect(status_bar.query_complete_callback)
         self._worker.init_complete.connect(status_bar.init_complete_callback)
         self._worker.error.connect(status_bar.error_callback)
+        self._worker.clear_status.connect(status_bar.clear_status)
+
+    def set_nplc_input(self, nplc_input: QLineEdit):
+        """Save the GUI component that houses the NPLC value"""
+        self._worker.nplc_input = nplc_input
 
     def set_interval(self, interval: str):
         """Set the update interval for the logging thread"""
@@ -165,8 +171,12 @@ class Worker(QObject):
     # Parameter is the timestamp this occurred at.
     query_complete = pyqtSignal(datetime)
 
-    # An error has occurred. Parameter is the error message.
+    # Signal that an error has occurred. Parameter is the error message.
     error = pyqtSignal(str)
+
+    # Signal that will clear the status bar of any text.
+    # Used to clear it after errors occur.
+    clear_status = pyqtSignal()
 
     # The update interval that readings should be taken at
     interval: float = 0  # seconds
@@ -186,9 +196,8 @@ class Worker(QObject):
     # Constant to mark a measurement could not be taken. Also written to results file.
     ERROR_STRING = "#ERROR"
 
-    # NPLC controls the number of samples the multimeter takes (which are then averaged
-    # internally before being sent back to us)
-    nplc: int = 50
+    # The GUI widget that contains the NPLC value
+    nplc_input: QLineEdit
 
     def __init__(self, logging_signal: Event):
         """
@@ -271,7 +280,7 @@ class Worker(QObject):
 
             multimeter.initialize(self._connection)
 
-            self._set_nplc(instrument)
+            self._set_nplc(instrument, int(self.nplc_input.text()))
 
             # Read all data remaining in the buffer; it is possible for
             # samples to be taken while initializing the multimeters.
@@ -286,32 +295,42 @@ class Worker(QObject):
 
     def set_nplc(self, nplc: str) -> None:
         """Set the NPLC for all configured instruments"""
+
+        try:
+            int_plc = int(nplc)
+        except ValueError:
+            # This happens if the input text box is empty
+            return
+
         try:
             for instrument in self.instrument_configs.values():
                 if instrument.enabled:
-                    self._set_nplc(instrument)
+                    self._set_nplc(instrument, int_plc)
         except InvalidNplcException as e:
             self.error.emit(
-                f"NPLC value {self.nplc} outside allowed range "
+                f"NPLC value {int_plc} outside allowed range "
                 f"{e.min_allowed} - {e.max_allowed}"
             )
             return
 
-    def _set_nplc(self, instrument: InstrumentConfig) -> None:
+        # Assuming all devices accepted the NPLC, clear any errors
+        self.clear_status.emit()
+
+    def _set_nplc(self, instrument: InstrumentConfig, nplc: int) -> None:
         """Set the NPLC for the given instrument"""
         with self.lock:
             self._set_prologix_address(instrument.address)
 
             multimeter = instrument.multimeter
 
-            multimeter.set_nplc(self._connection, self.nplc)
+            multimeter.set_nplc(self._connection, nplc)
 
             # The number of samples is tied to the electrical frequency.
             # i.e. an NPLC of 50 will take 1 second, as our mains runs at 50Hz.
             # So we need to ensure our timeout is more-than-enough to cover it
             # However we want to ensure we always have at least a 5 second timeout
             # as even the smallest NPLC values seem to take a few seconds to complete
-            timeout = max(5000, self.nplc * 100)
+            timeout = max(5000, nplc * 100)
             self._set_connection_timeout(timeout)  # ms
 
     def _set_prologix_address(self, gpib_address: int) -> None:
@@ -334,6 +353,10 @@ class Worker(QObject):
 
         if self.writer is None:
             logging.warning("No logfile selected")
+            return False
+
+        if self.nplc_input.text() == "":
+            logging.warning("No NPLC value set")
             return False
 
         logging.info("Parameters are valid")

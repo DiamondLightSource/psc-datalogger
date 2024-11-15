@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event
-from typing import Any, Generator, List
+from typing import Any, Generator, List, Type
 from unittest.mock import MagicMock, _Call, call, patch
 
 import pytest
@@ -305,6 +305,8 @@ class TestWorker:
         mocked_connection = MagicMock(spec=SerialInstrument)
         mocked_connection.bytes_in_buffer = 0
         worker._connection = mocked_connection
+        worker.nplc_input = MagicMock()
+        worker.nplc_input.text = MagicMock(return_value=50)
 
         enabled = True
         address = 22  # Note: Duplicated in the parameterized calls
@@ -323,6 +325,7 @@ class TestWorker:
         mocked_connection = MagicMock()
         mocked_connection.read = MagicMock(side_effect=["some", "random", "data"])
         worker._connection = mocked_connection
+        worker.nplc_input = MagicMock()
 
         enabled = True
         address = 22
@@ -371,14 +374,35 @@ class TestWorker:
         worker._connection.write.assert_any_call(f"NPLC {nplc}")
         assert worker._connection.timeout == 10000
 
-    @pytest.mark.parametrize("invalid_value", ["-1", "0", "2001", "999999"])
-    def test_set_nplc_invalid_value(self, invalid_value: str, worker: Worker):
+    @pytest.mark.parametrize(
+        "multimeter, invalid_value",
+        [
+            (Agilent3458A, "-1"),
+            (Agilent3458A, "0"),
+            (Agilent3458A, "2001"),
+            (Agilent3458A, "999999"),
+            (Agilent34401A, "-1"),
+            (Agilent34401A, "0"),
+            (Agilent34401A, "101"),
+        ],
+    )
+    def test_set_nplc_invalid_value(
+        self, multimeter: Type[Multimeter], invalid_value: str, worker: Worker
+    ):
         """Test that set_nplc rejects invalid values"""
+
+        worker.instrument_configs[1] = InstrumentConfig(
+            True, 5, multimeter=multimeter()
+        )
+        worker._connection = MagicMock()
+        worker.error = MagicMock()
+
         worker.set_nplc(invalid_value)
 
-        assert (
-            worker.nplc == 50
-        ), "worker's NPLC value was unexpectedly altered from default"
+        worker.error.emit.assert_called_once_with(
+            f"NPLC value {invalid_value} outside allowed range "
+            f"{multimeter.nplc_min} - {multimeter.nplc_max}"
+        )
 
     def test_validate_parameters(self, worker: Worker):
         """Test that validate_parameters allows through valid parameters"""
