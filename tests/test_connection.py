@@ -4,8 +4,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event
-from typing import Any, Generator
-from unittest.mock import MagicMock, call, patch
+from typing import Any, Generator, List
+from unittest.mock import MagicMock, _Call, call, patch
 
 import pytest
 import pyvisa
@@ -22,6 +22,7 @@ from psc_datalogger.connection import (
     PrologixNotFoundException,
     Worker,
 )
+from psc_datalogger.multimeter import Agilent3458A, Agilent34401A, Multimeter
 
 
 class TestConnectionManager:
@@ -117,7 +118,9 @@ class TestConnectionManager:
         connmgr._worker = mocked_worker
 
         with caplog.at_level(logging.ERROR):
-            connmgr.set_instrument(0, False, "10", False)  # parameters don't matter
+            connmgr.set_instrument(
+                0, False, "10", False, Agilent3458A
+            )  # parameters don't matter
 
         # Check that the expected message appears
         assert "Could not set instrument" in caplog.text
@@ -208,10 +211,19 @@ class TestWorker:
         enabled = True
         address = 22
         measure_temp = False
-        worker.set_instrument(num, enabled, str(address), measure_temp)
+        multimeter = MagicMock()
+        multimeter_returner = MagicMock(return_value=multimeter, spec=Agilent3458A)
+        worker.set_instrument(
+            num,
+            enabled,
+            str(address),
+            measure_temp,
+            multimeter_returner,  # type: ignore
+        )
 
-        expected_config = InstrumentConfig(enabled, address, measure_temp)
+        expected_config = InstrumentConfig(enabled, address, measure_temp, multimeter)
 
+        multimeter_returner.assert_called_once_with()
         assert worker.instrument_configs[num] == expected_config
         mocked_init_instrument.assert_called_once_with(expected_config)
 
@@ -226,15 +238,24 @@ class TestWorker:
         enabled = True
         address = 22
         measure_temp = False
-        worker.set_instrument(num, enabled, str(address), measure_temp)
+        worker.set_instrument(num, enabled, str(address), measure_temp, Agilent3458A)
 
         # Override values
         enabled = False
         address = 44
         measure_temp = True
-        expected_config = InstrumentConfig(enabled, address, measure_temp)
-        worker.set_instrument(num, enabled, str(address), measure_temp)
+        multimeter = MagicMock()
+        multimeter_returner = MagicMock(return_value=multimeter, spec=Agilent3458A)
+        expected_config = InstrumentConfig(enabled, address, measure_temp, multimeter)
+        worker.set_instrument(
+            num,
+            enabled,
+            str(address),
+            measure_temp,
+            multimeter_returner,  # type: ignore
+        )
 
+        multimeter_returner.assert_called_once_with()
         assert worker.instrument_configs[num] == expected_config
         mocked_init_instrument.assert_called_with(expected_config)
 
@@ -242,29 +263,54 @@ class TestWorker:
     def test_set_instrument_invalid_values(self, invalid_value: int, worker: Worker):
         """Test that passing invalid values raises expected exception"""
         with pytest.raises(AssertionError):
-            worker.set_instrument(invalid_value, True, "123", False)
+            worker.set_instrument(invalid_value, True, "123", False, Agilent3458A)
 
-    def test_init_instrument(self, worker: Worker):
+    @pytest.mark.parametrize(
+        "multimeter, expected_calls",
+        [
+            (
+                Agilent3458A(),
+                [
+                    call("++addr 22"),
+                    call("++auto 1"),
+                    call("PRESET NORM"),
+                    call("BEEP 0"),
+                    call("TRIG HOLD"),
+                    call("++addr 22"),
+                    call("++auto 1"),
+                    call("NPLC 50"),
+                ],
+            ),
+            (
+                Agilent34401A(),
+                [
+                    call("++addr 22"),
+                    call("++auto 0"),
+                    call("*RST"),
+                    call("CONFigure:VOLTage:DC 10, 0.003"),
+                    call("SYSTEM:BEEPER:STATE OFF"),
+                    call("++addr 22"),
+                    call("++auto 0"),
+                    call("VOLT:DC:NPLCYCLES 50"),
+                ],
+            ),
+        ],
+        ids=["Agilent3458A", "Agilent34401A"],
+    )
+    def test_init_instrument(
+        self, worker: Worker, multimeter: Multimeter, expected_calls: List[_Call]
+    ):
         """Test that init_instrument sends the expected calls to the hardware"""
 
-        mocked_connection = MagicMock()
+        mocked_connection = MagicMock(spec=SerialInstrument)
         mocked_connection.bytes_in_buffer = 0
         worker._connection = mocked_connection
 
         enabled = True
-        address = 22
-        worker._init_instrument(InstrumentConfig(enabled, address))
-
-        expected_calls = [
-            call(f"++addr {address}"),
-            call("++auto 1"),
-            call("PRESET NORM"),
-            call("BEEP 0"),
-            call(f"++addr {address}"),
-            call("++auto 1"),
-            call("NPLC 50"),
-            call("TRIG HOLD"),
-        ]
+        address = 22  # Note: Duplicated in the parameterized calls
+        worker._init_instrument(
+            InstrumentConfig(enabled, address, multimeter=multimeter)
+        )
 
         mocked_connection.write.assert_has_calls(expected_calls, any_order=False)
 

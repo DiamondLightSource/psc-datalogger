@@ -1,11 +1,14 @@
 import logging
-from typing import Callable, Optional
+from typing import Callable, Optional, Type
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIntValidator
 from PyQt5.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -17,6 +20,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from psc_datalogger.multimeter import Agilent3458A, Agilent34401A, Multimeter
 
 from . import __version__
 from .connection import ConnectionManager
@@ -136,6 +141,7 @@ class DataloggerMainWindow(QMainWindow):
                     i.isChecked(),
                     i.get_address(),
                     i.get_temperature_checked(),
+                    i.get_multimeter(),
                 )
             except ValueError:
                 # Expected when first activating an instrument; the Address field
@@ -188,7 +194,7 @@ class LogFileWidgets(QFrame):
 
 
 class AgilentWidgets(QGroupBox):
-    """Contains widgets describing a single Agilent 3458A instrument"""
+    """Contains widgets to configure a single instrument"""
 
     def __init__(
         self, instrument_number: int, checked: bool, instrument_changed: Callable
@@ -197,7 +203,7 @@ class AgilentWidgets(QGroupBox):
         Args:
           instrument_number: The number to use to identify this instance
           checked: True if the widgets should be enabled by default
-          instrument_changed: Callback to be called whenever an address changes
+          instrument_changed: Callback to be called whenever any configuration changes
         """
         super().__init__(f"Instrument {instrument_number}")
         self.instrument_number = instrument_number
@@ -222,12 +228,38 @@ class AgilentWidgets(QGroupBox):
         # Don't need to .connect() the second button as changing the first one
         # triggers a callback that will check both buttons
 
-        layout = QHBoxLayout(self)
-        layout.addWidget(address_label)
-        layout.addWidget(self.address_input_box)
-        layout.addWidget(self.voltage_radiobutton)
-        layout.addWidget(self.temperature_radiobutton)
-        self.setLayout(layout)
+        grid_layout = QGridLayout(self)
+
+        first_row_layout = QHBoxLayout()
+
+        self.A3458_radiobutton = QRadioButton("3458A")
+        self.A3458_radiobutton.setChecked(True)
+        self.A3458_radiobutton.toggled.connect(instrument_changed)
+        self.A34401_radiobutton = QRadioButton("34401A")
+
+        device_groupbox = QButtonGroup(self)
+        device_groupbox.addButton(self.A3458_radiobutton)
+        device_groupbox.addButton(self.A34401_radiobutton)
+
+        first_row_layout.addWidget(self.A3458_radiobutton)
+        first_row_layout.addWidget(self.A34401_radiobutton)
+
+        grid_layout.addLayout(first_row_layout, 0, 0, Qt.AlignmentFlag.AlignCenter)
+
+        second_row_layout = QHBoxLayout()
+
+        measurement_type_groupbox = QButtonGroup(self)
+        measurement_type_groupbox.addButton(self.voltage_radiobutton)
+        measurement_type_groupbox.addButton(self.temperature_radiobutton)
+
+        second_row_layout.addWidget(address_label)
+        second_row_layout.addWidget(self.address_input_box)
+        second_row_layout.addWidget(self.voltage_radiobutton)
+        second_row_layout.addWidget(self.temperature_radiobutton)
+
+        grid_layout.addLayout(second_row_layout, 1, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self.setLayout(grid_layout)
 
     def get_address(self) -> str:
         return self.address_input_box.text()
@@ -236,3 +268,6 @@ class AgilentWidgets(QGroupBox):
         """Returns True if this instrument is configured to read temperature instead of
         voltage"""
         return self.temperature_radiobutton.isChecked()
+
+    def get_multimeter(self) -> Type[Multimeter]:
+        return Agilent3458A if self.A3458_radiobutton.isChecked() else Agilent34401A
