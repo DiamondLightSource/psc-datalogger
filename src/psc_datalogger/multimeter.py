@@ -75,7 +75,14 @@ class Agilent3458A(Multimeter):
 
     def take_reading(self, connection: SerialInstrument) -> str:
         # Send single trigger command to the multimeter, and return the resultant value
-        return connection.query("TRIG SGL")
+        raw = connection.query("TRIG SGL")
+        return self._clean_string(raw)
+
+    def _clean_string(self, volts: str) -> str:
+        """Clean up the returned string by removing extraneous characters"""
+        # Value format is e.g. " 9.089320482E+00\r\n"
+        # Occasionally there are also leading NULL bytes.
+        return volts.replace("\x00", "").strip(" \r\n")
 
     def _ensure_prologix_settings(self, connection: SerialInstrument):
         connection.write("++auto 1")  # Enables use of "query"
@@ -113,13 +120,17 @@ class Agilent34401A(Multimeter):
         connection.write("VOLT:DC:NPLCYCLES?")
         nplc = connection.query("++read eoi")
 
+        nplc_float = float(self._clean_string(nplc))
+
+        assert self.nplc_min <= nplc_float <= self.nplc_max, "Invalid NPLC read"
+
         # Triggers a single reading of the multimeter, which will save the data
         # into internal memory. This can take several seconds, based on NPLC setting.
         connection.write("INIT")
 
         # Estimate how long to wait. An NPLC of 50 should take 1 second (matches
         # electrical frequency). Add 1 for some padding.
-        wait_time = (float(self._clean_string(nplc)) / 50) + 1
+        wait_time = (nplc_float / 50) + 1
         time.sleep(wait_time)
 
         # Data should now be in internal memory; tell the multimeter to move it
@@ -134,7 +145,7 @@ class Agilent34401A(Multimeter):
         return volts.replace("\x00", "")
 
     def _ensure_prologix_settings(self, connection: SerialInstrument):
-        # "auto 1" triggers error -420 "Query Unterminated" errors, so must do manual
-        # explicit write and reads
+        # "auto 1" causes "error -420 Query Unterminated" errors when doing write
+        # commands that don't return any data, so must do manual explicit write and read
         connection.write("++auto 0")
         connection.read_termination = "\n"

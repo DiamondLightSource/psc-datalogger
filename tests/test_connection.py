@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, _Call, call, patch
 
 import pytest
 import pyvisa
+from pytest import LogCaptureFixture
 
 # pyright thinks this constant is not exported
 from pyvisa.errors import VI_ERROR_TMO  # type: ignore
@@ -172,6 +173,13 @@ class TestDataWriter:
         assert filecmp.cmp(self.filepath, expected)
 
 
+def multimeter_naming(val):
+    """Function to provide readable names for Pytest parameterized tests"""
+    if isinstance(val, Multimeter):
+        return val.__class__
+    return ""
+
+
 class TestWorker:
     logging_signal: Event
 
@@ -295,7 +303,7 @@ class TestWorker:
                 ],
             ),
         ],
-        ids=["Agilent3458A", "Agilent34401A"],
+        ids=multimeter_naming,
     )
     def test_init_instrument(
         self, worker: Worker, multimeter: Multimeter, expected_calls: List[_Call]
@@ -410,6 +418,7 @@ class TestWorker:
         worker.instrument_configs[1] = InstrumentConfig(True, 23)
         worker.interval = 1
         worker.writer = MagicMock()
+        worker.nplc_input = MagicMock()
 
         assert worker.validate_parameters()
 
@@ -590,18 +599,88 @@ class TestWorker:
             timestamp=now, ins_1=data[1], ins_2=data[2], ins_3=data[3]
         )
 
+    @patch("psc_datalogger.multimeter.time")
+    @pytest.mark.parametrize(
+        "multimeter, expected_writes, expected_queries",
+        [
+            (
+                Agilent34401A(),
+                [
+                    call("++addr 22"),
+                    call("++auto 0"),
+                    call("VOLT:DC:NPLCYCLES?"),
+                    call("INIT"),
+                    call("FETCH?"),
+                ],
+                [
+                    call("++read eoi"),
+                    call("++read eoi"),
+                ],
+            ),
+            (
+                Agilent3458A(),
+                [call("++addr 22")],
+                [
+                    call("TRIG SGL"),
+                ],
+            ),
+        ],
+        ids=multimeter_naming,
+    )
+    def test_query_instrument_sends_expected_commands(
+        self,
+        mocked_time: MagicMock,
+        worker: Worker,
+        multimeter: Multimeter,
+        expected_writes: List[_Call],
+        expected_queries: List[_Call],
+    ):
+        """Test that the query_instrument function sends the right commands to the
+        multimeter"""
+        address = 22  # NOTE: Also in parameters
+        worker.instrument_configs[1] = InstrumentConfig(
+            True, address, multimeter=multimeter
+        )
+
+        mocked_write = MagicMock()
+        mocked_query = MagicMock(return_value="1")
+        worker._connection = MagicMock()
+        worker._connection.write = mocked_write
+        worker._connection.query = mocked_query
+
+        # Call under test
+        worker.query_instruments()
+
+        # mocked_write.assert_called_once_with(f"++addr {address}")
+        mocked_write.assert_has_calls(expected_writes, any_order=False)
+        mocked_query.assert_has_calls(expected_queries, any_order=False)
+
     @patch("psc_datalogger.connection.datetime")
+    @pytest.mark.parametrize(
+        "multimeter, voltage_reading",
+        [
+            (Agilent34401A(), "\x009.089320482E+00"),
+            (Agilent3458A(), "\x00 9.089320482E+00"),
+        ],
+        ids=multimeter_naming,
+    )
     def test_query_instruments_voltage(
-        self, mocked_datetime: MagicMock, worker: Worker
+        self,
+        mocked_datetime: MagicMock,
+        worker: Worker,
+        multimeter: Multimeter,
+        voltage_reading: str,
     ):
         """Test querying the (mocked) hardware returns voltage"""
         # Set up mocks
         address = 22
-        worker.instrument_configs[1] = InstrumentConfig(True, address)
-        voltage_str = " 9.089320482E+00\r\n"
-        voltage_trimmed = "9.089320482E+00"
+        worker.instrument_configs[1] = InstrumentConfig(
+            True, address, multimeter=multimeter
+        )
+
+        voltage_trimmed = "9.089320482E+00"  # The cleaned up string we expect
         mocked_write = MagicMock()
-        mocked_query = MagicMock(return_value=voltage_str)
+        mocked_query = MagicMock(return_value=voltage_reading)
         worker._connection = MagicMock()
         worker._connection.write = mocked_write
         worker._connection.query = mocked_query
@@ -618,24 +697,33 @@ class TestWorker:
         assert results[2] == ""
         assert results[3] == ""
 
-        mocked_write.assert_called_once_with(f"++addr {address}")
-        mocked_query.assert_called_once_with("TRIG SGL")
-
     @patch("psc_datalogger.connection.datetime")
+    @pytest.mark.parametrize(
+        "multimeter, query_returns",
+        [
+            # First "10" is for the NPLC query
+            (Agilent34401A(), ["10", "\x001E-03"]),
+            (Agilent3458A(), ["\x00 1E-03"]),
+        ],
+        ids=multimeter_naming,
+    )
     def test_query_instruments_temperature(
-        self, mocked_datetime: MagicMock, worker: Worker
+        self,
+        mocked_datetime: MagicMock,
+        worker: Worker,
+        multimeter: Multimeter,
+        query_returns: str,
     ):
         """Test querying the (mocked) hardware returns the voltage converted to a
         temperature"""
         # Set up mocks
         address = 22
         worker.instrument_configs[1] = InstrumentConfig(
-            True, address, convert_to_temp=True
+            True, address, multimeter=multimeter, convert_to_temp=True
         )
-        voltage_str = "1E-03"
         temperature = "0.2"  # degrees Celcius, calculated from voltage_str
         mocked_write = MagicMock()
-        mocked_query = MagicMock(return_value=voltage_str)
+        mocked_query = MagicMock(side_effect=query_returns)
         worker._connection = MagicMock()
         worker._connection.write = mocked_write
         worker._connection.query = mocked_query
@@ -652,17 +740,28 @@ class TestWorker:
         assert results[2] == ""
         assert results[3] == ""
 
-        mocked_write.assert_called_once_with(f"++addr {address}")
-        mocked_query.assert_called_once_with("TRIG SGL")
-
     @patch("psc_datalogger.connection.datetime")
+    @pytest.mark.parametrize(
+        "multimeter",
+        [
+            Agilent34401A(),
+            Agilent3458A(),
+        ],
+        ids=multimeter_naming,
+    )
     def test_query_instruments_timeout(
-        self, mocked_datetime: MagicMock, worker: Worker
+        self,
+        mocked_datetime: MagicMock,
+        worker: Worker,
+        multimeter: Multimeter,
+        caplog: LogCaptureFixture,
     ):
         """Test that a timeout returns an error string"""
         # Set up mocks
         address = 22
-        worker.instrument_configs[1] = InstrumentConfig(True, address)
+        worker.instrument_configs[1] = InstrumentConfig(
+            True, address, multimeter=multimeter
+        )
         mocked_write = MagicMock()
         mocked_query = MagicMock(side_effect=pyvisa.VisaIOError(VI_ERROR_TMO))
         worker._connection = MagicMock()
@@ -681,21 +780,32 @@ class TestWorker:
         assert results[2] == ""
         assert results[3] == ""
 
-        mocked_write.assert_called_once_with(f"++addr {address}")
-        mocked_query.assert_called_once_with("TRIG SGL")
+        assert "Exception reading from address " in caplog.text
 
     @patch("psc_datalogger.connection.datetime")
+    @pytest.mark.parametrize(
+        "multimeter",
+        [
+            Agilent34401A(),
+            Agilent3458A(),
+        ],
+        ids=multimeter_naming,
+    )
     def test_query_instruments_invalid_temperature_reading(
-        self, mocked_datetime: MagicMock, worker: Worker
+        self,
+        mocked_datetime: MagicMock,
+        worker: Worker,
+        multimeter: Multimeter,
+        caplog: LogCaptureFixture,
     ):
         """Test that an invalid voltage that cannot be converted to a temperature
         returns an error"""
         # Set up mocks
         address = 22
         worker.instrument_configs[1] = InstrumentConfig(
-            True, address, convert_to_temp=True
+            True, address, multimeter=multimeter, convert_to_temp=True
         )
-        voltage_str = "12345"
+        voltage_str = "0.5"  # Value is too large to convert to temp
         mocked_write = MagicMock()
         mocked_query = MagicMock(return_value=voltage_str)
         worker._connection = MagicMock()
@@ -714,8 +824,7 @@ class TestWorker:
         assert results[2] == ""
         assert results[3] == ""
 
-        mocked_write.assert_called_once_with(f"++addr {address}")
-        mocked_query.assert_called_once_with("TRIG SGL")
+        assert f"Exception converting value {voltage_str} to temperature" in caplog.text
 
     def test_connection_check_no_connection(self, worker: Worker):
         """Test that when there is no connection the expected exception is raised"""

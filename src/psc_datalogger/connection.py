@@ -497,9 +497,6 @@ class Worker(QObject):
 
                     logging.debug(f"Address {i.address} Value {val}")
 
-                    # Value format is e.g. " 9.089320482E+00\r\n"
-                    # Occasionally there are also leading NULL bytes.
-                    val = val.strip(" \r\n").replace("\x00", "")
                 except Exception:
                     # Issue reading from this instrument. Mark an error but continue
                     # processing other instruments
